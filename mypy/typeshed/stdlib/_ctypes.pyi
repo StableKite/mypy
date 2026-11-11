@@ -6,11 +6,12 @@ from abc import abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from ctypes import CDLL, ArgumentError as ArgumentError, c_void_p
 from types import GenericAlias
-from typing import Any, ClassVar, Final, Generic, Literal, SupportsIndex, TypeAlias, TypeVar, final, overload, type_check_only
-from typing_extensions import Self
+from typing import Any, ClassVar, Final, Generic, Literal, SupportsIndex, TypeAlias, final, overload, type_check_only
+from typing_extensions import Self, TypeVar
 
 _T = TypeVar("_T")
 _CT = TypeVar("_CT", bound=_CData)
+_CArgT_co = TypeVar("_CArgT_co", covariant=True, default=object)
 
 FUNCFLAG_CDECL: Final = 0x1
 FUNCFLAG_PYTHONAPI: Final = 0x4
@@ -151,13 +152,15 @@ if sys.version_info < (3, 14):
 # This class is not exposed. It calls itself _ctypes.CArgObject.
 @final
 @type_check_only
-class _CArgObject: ...
+class _CArgObject(Generic[_CArgT_co]):
+    @property
+    def _obj(self) -> _CArgT_co: ...
 
 if sys.version_info >= (3, 14):
-    def byref(obj: _CData | _CDataType, offset: int = 0, /) -> _CArgObject: ...
+    def byref(obj: _CT, offset: int = 0, /) -> _CArgObject[_CT]: ...
 
 else:
-    def byref(obj: _CData | _CDataType, offset: int = 0) -> _CArgObject: ...
+    def byref(obj: _CT, offset: int = 0) -> _CArgObject[_CT]: ...
 
 # Mutable restype/argtypes and conversion hooks determine the Python values.
 # Keep the callback's three arguments and its function/tuple shape checked.

@@ -1,0 +1,45 @@
+[case testExplicitNotImplementedReturn]
+# flags: --warn-return-any
+from types import NotImplementedType
+def direct() -> NotImplementedType:
+    return NotImplemented
+def retained(value: NotImplementedType) -> NotImplementedType:
+    return value
+def constructed() -> NotImplementedType:
+    return NotImplementedType()
+[builtins fixtures/notimplemented.pyi]
+
+[case testExplicitNotImplementedUnionReturn]
+# flags: --warn-return-any
+from types import NotImplementedType
+from typing import Union
+def direct() -> Union[int, NotImplementedType]:
+    return NotImplemented
+Result = Union[str, NotImplementedType]
+def retained(value: NotImplementedType) -> Result:
+    return value
+[builtins fixtures/notimplemented.pyi]
+
+[case testExplicitNotImplementedReturnDoesNotAcceptActualAny]
+# flags: --warn-return-any
+from types import NotImplementedType
+from typing import Any
+def direct(value: Any) -> NotImplementedType:
+    return value  # E: Returning Any from function declared to return "NotImplementedType"
+[builtins fixtures/notimplemented.pyi]
+
+[case testExplicitNotImplementedReturnRejectsWrongConcreteTypes]
+# flags: --warn-return-any
+from types import NotImplementedType
+def direct() -> NotImplementedType:
+    return 23  # E: Incompatible return value type (got "int", expected "NotImplementedType")
+[builtins fixtures/notimplemented.pyi]
+
+[case testExplicitNotImplementedReturnPreservesLegacyOtherReturn]
+# flags: --warn-return-any
+class Comparator:
+    def __eq__(self, other: object) -> bool:
+        return NotImplemented
+    def ordinary(self) -> bool:
+        return NotImplemented  # E: Returning Any from function declared to return "bool"
+[builtins fixtures/notimplemented.pyi]

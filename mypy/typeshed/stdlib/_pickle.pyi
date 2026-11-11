@@ -1,6 +1,7 @@
 from _typeshed import ReadableBuffer, SupportsWrite
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pickle import PickleBuffer as PickleBuffer
+from types import NotImplementedType
 from typing import Any, Protocol, TypeAlias, type_check_only
 from typing_extensions import disjoint_base
 
@@ -17,6 +18,9 @@ _ReducedType: TypeAlias = (
     | tuple[Callable[..., Any], tuple[Any, ...], Any]
     | tuple[Callable[..., Any], tuple[Any, ...], Any, Iterator[Any] | None]
     | tuple[Callable[..., Any], tuple[Any, ...], Any, Iterator[Any] | None, Iterator[Any] | None]
+    | tuple[
+        Callable[..., Any], tuple[Any, ...], Any, Iterator[Any] | None, Iterator[Any] | None, Callable[[Any, Any], object] | None
+    ]
 )
 
 def dump(
@@ -83,7 +87,7 @@ class Pickler:
     # The following method is not defined on _Pickler, but can be defined on
     # sub-classes. Should return `NotImplemented` if pickling the supplied
     # object is not supported and returns the same types as `__reduce__()`.
-    def reducer_override(self, obj: object, /) -> _ReducedType: ...
+    def reducer_override(self, obj: object, /) -> _ReducedType | NotImplementedType: ...
 
 @type_check_only
 class UnpicklerMemoProxy:

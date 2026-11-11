@@ -5363,10 +5363,20 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
                             s.expr, return_type, allow_none_return=allow_none_func_call
                         )
                     )
-                # Treat NotImplemented as having type Any, consistent with its
-                # definition in typeshed prior to python/typeshed#4222.
+                # Preserve a known sentinel when the declared result explicitly
+                # includes it. Legacy annotations (notably binary operators)
+                # still use the pre-typeshed#4222 Any compatibility behavior.
                 if isinstance(typ, Instance) and typ.type.fullname in NOT_IMPLEMENTED_TYPE_NAMES:
-                    typ = AnyType(TypeOfAny.special_form)
+                    declared_results = (
+                        return_type.items if isinstance(return_type, UnionType) else [return_type]
+                    )
+                    explicit_sentinel_result = any(
+                        isinstance(declared_item := get_proper_type(item), Instance)
+                        and declared_item.type.fullname in NOT_IMPLEMENTED_TYPE_NAMES
+                        for item in declared_results
+                    )
+                    if not explicit_sentinel_result:
+                        typ = AnyType(TypeOfAny.special_form)
 
                 if defn.is_async_generator:
                     self.fail(message_registry.RETURN_IN_ASYNC_GENERATOR, s)
