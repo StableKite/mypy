@@ -5287,9 +5287,9 @@ TTA = TypeVar('TTA', bound='Type[A]')
 TM = TypeVar('TM', bound='M')
 
 class M(type):
-    def g1(cls: 'Type[A]') -> A: pass  # E: The erased type of self "type[__main__.A]" is not a supertype of its class "__main__.M"
-    def g2(cls: Type[TA]) -> TA: pass  # E: The erased type of self "type[__main__.A]" is not a supertype of its class "__main__.M"
-    def g3(cls: TTA) -> TTA: pass  # E: The erased type of self "type[__main__.A]" is not a supertype of its class "__main__.M"
+    def g1(cls: 'Type[A]') -> A: pass  # The bound class guarantees the owner metaclass M.
+    def g2(cls: Type[TA]) -> TA: pass  # The bound class guarantees the owner metaclass M.
+    def g3(cls: TTA) -> TTA: pass  # The bound class guarantees the owner metaclass M.
     def g4(cls: TM) -> TM: pass
 m: M
 
@@ -9754,3 +9754,73 @@ class A:
     def p(self, value: int) -> None:
         self.x = value
 [builtins fixtures/property.pyi]
+
+
+[case testNominalMetaclassClassBoundAndExplicitSuper]
+# flags: --strict
+from typing import Type, TypeVar
+T = TypeVar('T', bound='A')
+
+class NameMeta(type):
+    def tag(cls) -> str:
+        return cls.__name__
+
+class M(NameMeta):
+    def g1(cls: Type[A]) -> A:
+        return cls()
+    def g2(cls: Type[T]) -> T:
+        return cls()
+    def tag(cls: Type[A]) -> str:
+        return super().tag()
+    def explicit_tag(cls: Type[T]) -> str:
+        return super(M, cls).tag()
+
+class A(metaclass=M):
+    pass
+class ChildMeta(M):
+    pass
+class B(A, metaclass=ChildMeta):
+    pass
+
+reveal_type(A.g1())  # N: Revealed type is "__main__.A"
+reveal_type(A.g2())  # N: Revealed type is "__main__.A"
+reveal_type(B.g2())  # N: Revealed type is "__main__.B"
+reveal_type(M.g2(B))  # N: Revealed type is "__main__.B"
+reveal_type(A.tag())  # N: Revealed type is "builtins.str"
+reveal_type(B.explicit_tag())  # N: Revealed type is "builtins.str"
+[builtins fixtures/type.pyi]
+
+[case testNominalMetaclassClassBoundRejectsIncompatibleSuper]
+# flags: --strict
+from typing import Type, TypeVar
+T = TypeVar('T', bound='A')
+
+class NameMeta(type):
+    def tag(cls) -> str:
+        return cls.__name__
+
+class M(NameMeta):
+    def g2(cls: Type[T]) -> T:
+        return cls()
+
+class A(metaclass=M):
+    pass
+class ChildMeta(M):
+    pass
+class B(A, metaclass=ChildMeta):
+    pass
+class Plain:
+    pass
+class OutsideDomain(metaclass=M):
+    pass
+
+class IncompatibleMeta(NameMeta):
+    def tag(cls: Type[A]) -> str:  # E: The erased type of self "type[__main__.A]" is not a supertype of its class "__main__.IncompatibleMeta"
+        return super().tag()  # E: Returning Any from function declared to return "str"                              # E: Argument 2 for "super" not an instance of argument 1
+
+wrong_return: str = B.g2()  # E: Incompatible types in assignment (expression has type "B", variable has type "str")
+M.g2(Plain)  # E: Value of type variable "T" of "g2" of "M" cannot be "Plain"
+OutsideDomain.g2()  # E: Invalid self argument "type[OutsideDomain]" to attribute function "g2" with type "Callable[[type[T]], T]"
+super(M, Plain).tag()  # E: Argument 2 for "super" not an instance of argument 1
+super(ChildMeta, A).tag()  # E: Argument 2 for "super" not an instance of argument 1
+[builtins fixtures/type.pyi]

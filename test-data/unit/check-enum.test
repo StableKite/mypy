@@ -3007,3 +3007,56 @@ match foo:
         foo()
         reveal_type(foo) # N: Revealed type is "Literal[__main__.Foo.FOO2]"
 [builtins fixtures/primitives.pyi]
+
+[case testEnumMetaclassClassBoundSelfAndSuper]
+# flags: --strict
+from enum import Enum, EnumMeta
+from typing import Type, TypeVar
+
+Member = TypeVar('Member', bound='CaseInsensitiveEnum')
+
+class CaseInsensitiveEnumMeta(EnumMeta):
+    def __getitem__(cls: Type[Member], key: str) -> Member:
+        return super().__getitem__(key)
+
+class CaseInsensitiveEnum(Enum, metaclass=CaseInsensitiveEnumMeta):
+    pass
+
+class Color(CaseInsensitiveEnum):
+    RED = 1
+
+def lookup(cls: Type[Member], key: str) -> Member:
+    return cls[key]
+
+reveal_type(Color['RED'])  # N: Revealed type is "__main__.Color"
+reveal_type(CaseInsensitiveEnumMeta.__getitem__(Color, 'RED'))  # N: Revealed type is "__main__.Color"
+reveal_type(lookup(Color, 'RED'))  # N: Revealed type is "__main__.Color"
+[builtins fixtures/enum-metaclass-strict.pyi]
+
+[case testEnumMetaclassClassBoundRejectsWrongDomain]
+# flags: --strict
+from enum import Enum, EnumMeta
+from typing import Type, TypeVar
+
+Member = TypeVar('Member', bound='RestrictedEnum')
+
+class RestrictedMeta(EnumMeta):
+    def __getitem__(cls: Type[Member], key: str) -> Member:
+        return super().__getitem__(key)
+
+class RestrictedEnum(Enum, metaclass=RestrictedMeta):
+    pass
+
+class Color(RestrictedEnum):
+    RED = 1
+
+class PlainEnum(Enum):
+    RED = 1
+
+class OutsideDomain(Enum, metaclass=RestrictedMeta):
+    RED = 1
+
+RestrictedMeta.__getitem__(PlainEnum, 'RED')  # E: Value of type variable "Member" of "__getitem__" of "RestrictedMeta" cannot be "PlainEnum"
+OutsideDomain['RED']  # E: Invalid self argument "type[OutsideDomain]" to attribute function "__getitem__" with type "Callable[[type[Member], str], Member]"
+Color[1]  # E: Invalid index type "int" for "type[Color]"; expected type "str"
+[builtins fixtures/enum-metaclass-strict.pyi]

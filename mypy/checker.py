@@ -1785,6 +1785,18 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
         # This level of erasure matches the one in checkmember.check_self_arg(),
         # better keep these two checks consistent.
         erased = get_proper_type(erase_typevars(erase_to_bound(arg_type)))
+        proper_ref_type = get_proper_type(ref_type)
+        if (
+            isinstance(proper_ref_type, Instance)
+            and proper_ref_type.type.is_metaclass()
+            and isinstance(erased, TypeType)
+            and isinstance(erased.item, Instance)
+        ):
+            # A class-object bound can guarantee the metaclass that owns this
+            # method. A broader class bound with a different metaclass cannot.
+            metaclass = erased.item.type.metaclass_type
+            if metaclass is not None and proper_ref_type.type in metaclass.type.mro:
+                return True
         if not is_subtype(ref_type, erased, ignore_type_params=True):
             if (
                 isinstance(erased, Instance)

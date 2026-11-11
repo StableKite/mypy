@@ -477,6 +477,17 @@ def analyze_type_type_member_access(
 
     if item is not None:
         fallback = item.type.metaclass_type or fallback
+        if (
+            mx.is_super
+            and override_info is not None
+            and override_info.is_metaclass()
+            and override_info not in item.type.mro
+            and override_info in fallback.type.mro
+        ):
+            # super() on an instance of a metaclass binds the class object,
+            # including its type variables, rather than exposing an unbound
+            # method from the metaclass as a class attribute.
+            return analyze_instance_member_access(name, fallback, mx, override_info)
 
     if item and not mx.is_operator:
         # See comment above for why operators are skipped

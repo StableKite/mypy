@@ -4589,7 +4589,18 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
             return self.visit_typeddict_index_expr(left_type, e.index)[0]
         elif isinstance(left_type, FunctionLike) and left_type.is_type_obj():
             if left_type.type_object().is_enum:
-                return self.visit_enum_index_expr(left_type.type_object(), e.index, e)
+                enum_type = left_type.type_object()
+                metaclass = enum_type.metaclass_type
+                owner = (
+                    metaclass.type.get_containing_type_info("__getitem__")
+                    if metaclass is not None
+                    else None
+                )
+                if owner is None or owner.fullname in ("enum.EnumMeta", "enum.EnumType"):
+                    return self.visit_enum_index_expr(enum_type, e.index, e)
+                # A custom metaclass may declare a restricted class-object
+                # domain or overloads. Check its actual method below instead
+                # of bypassing that contract with the built-in enum rule.
             elif (
                 left_type.type_object().type_vars
                 or left_type.type_object().fullname == "builtins.type"
@@ -5752,6 +5763,17 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
             return AnyType(TypeOfAny.from_error)
 
         mro = instance_info.mro
+        if (
+            type_info not in mro
+            and type_info.is_metaclass()
+            and isinstance(get_proper_type(instance_type), TypeType)
+        ):
+            # A class object is also an instance of its declared metaclass.
+            # Keep the ordinary MRO when the second argument is itself a
+            # metaclass subclass, as in super(Meta, MetaSubclass).
+            metaclass = instance_info.metaclass_type
+            if metaclass is not None and type_info in metaclass.type.mro:
+                mro = metaclass.type.mro
 
         # The base is the first MRO entry *after* type_info that has a member
         # with the right name
