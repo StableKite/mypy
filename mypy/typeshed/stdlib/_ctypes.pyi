@@ -159,7 +159,9 @@ if sys.version_info >= (3, 14):
 else:
     def byref(obj: _CData | _CDataType, offset: int = 0) -> _CArgObject: ...
 
-_ECT: TypeAlias = Callable[[_CData | _CDataType | None, CFuncPtr, tuple[_CData | _CDataType, ...]], _CDataType]
+# Mutable restype/argtypes and conversion hooks determine the Python values.
+# Keep the callback's three arguments and its function/tuple shape checked.
+_ECT: TypeAlias = Callable[[Any, CFuncPtr, tuple[Any, ...]], object]
 _PF: TypeAlias = tuple[int] | tuple[int, str | None] | tuple[int, str | None, Any]
 
 # This class is not exposed. It calls itself _ctypes.PyCFuncPtrType.
@@ -178,7 +180,12 @@ class _PyCFuncPtrType(_CTypeBaseType):
 class CFuncPtr(_PointerLike, _CData, metaclass=_PyCFuncPtrType):
     restype: type[_CDataType] | Callable[[int], Any] | None
     argtypes: Sequence[type[_CDataType]]
-    errcheck: _ECT
+    @property
+    def errcheck(self) -> _ECT | None: ...
+    @errcheck.setter
+    def errcheck(self, value: _ECT, /) -> None: ...
+    @errcheck.deleter
+    def errcheck(self) -> None: ...
     # Abstract attribute that must be defined on subclasses
     _flags_: ClassVar[int]
 
