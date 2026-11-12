@@ -76,7 +76,7 @@ class _CData:
     _b_needsfree_: bool
     _objects: Mapping[Any, int] | None
     def __buffer__(self, flags: int, /) -> memoryview: ...
-    def __ctypes_from_outparam__(self, /) -> Self: ...
+    def __ctypes_from_outparam__(self, /) -> object: ...
     if sys.version_info >= (3, 14):
         __pointer_type__: type
 
@@ -103,7 +103,7 @@ class _SimpleCData(_CData, Generic[_T], metaclass=_PyCSimpleType):
     # The TypeVar can be unsolved here,
     # but we can't use overloads without creating many, many mypy false-positive errors
     def __init__(self, value: _T = ...) -> None: ...  # pyright: ignore[reportInvalidTypeVarUse]
-    def __ctypes_from_outparam__(self, /) -> _T: ...  # type: ignore[override]
+    def __ctypes_from_outparam__(self, /) -> object: ...
 
 @type_check_only
 class _CanCastTo(_CData): ...

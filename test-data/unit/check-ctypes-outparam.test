@@ -1,0 +1,138 @@
+[case testCtypesOutparamConcreteOverrideResults]
+from ctypes import Structure, c_int, c_wchar_p
+
+class Text(c_wchar_p):
+    def __ctypes_from_outparam__(self) -> str | None:
+        return self.value
+
+class NumberText(c_int):
+    def __ctypes_from_outparam__(self) -> str:
+        return "converted"
+
+class Data(Structure):
+    def __ctypes_from_outparam__(self) -> dict[str, str]:
+        return {"kind": "structure"}
+
+reveal_type(Text("text").__ctypes_from_outparam__())  # N: Revealed type is "builtins.str | None"
+reveal_type(NumberText(17).__ctypes_from_outparam__())  # N: Revealed type is "builtins.str"
+reveal_type(Data().__ctypes_from_outparam__())  # N: Revealed type is "builtins.dict[builtins.str, builtins.str]"
+[builtins fixtures/floatdict.pyi]
+[typing fixtures/typing-medium.pyi]
+
+[case testCtypesOutparamOptionalArguments]
+from ctypes import c_int
+
+class Positional(c_int):
+    def __ctypes_from_outparam__(self, value: int = 1) -> str:
+        return "converted"
+
+class Keyword(c_int):
+    def __ctypes_from_outparam__(self, *, value: int = 1) -> str:
+        return "converted"
+
+class PositionalOnly(c_int):
+    def __ctypes_from_outparam__(self, value: int = 1, /) -> str:
+        return "converted"
+
+class Variadic(c_int):
+    def __ctypes_from_outparam__(self, *args: object, **kwargs: object) -> str:
+        return "converted"
+
+reveal_type(Positional().__ctypes_from_outparam__())  # N: Revealed type is "builtins.str"
+reveal_type(Keyword().__ctypes_from_outparam__())  # N: Revealed type is "builtins.str"
+reveal_type(PositionalOnly().__ctypes_from_outparam__())  # N: Revealed type is "builtins.str"
+reveal_type(Variadic().__ctypes_from_outparam__())  # N: Revealed type is "builtins.str"
+[builtins fixtures/floatdict.pyi]
+[typing fixtures/typing-medium.pyi]
+
+[case testCtypesOutparamHonestBasePrecision]
+from ctypes import Structure, c_int, c_wchar_p
+
+class Number(c_int):
+    pass
+
+reveal_type(c_int(17).__ctypes_from_outparam__())  # N: Revealed type is "builtins.object"
+reveal_type(c_wchar_p("text").__ctypes_from_outparam__())  # N: Revealed type is "builtins.object"
+reveal_type(Number(17).__ctypes_from_outparam__())  # N: Revealed type is "builtins.object"
+reveal_type(Structure().__ctypes_from_outparam__())  # N: Revealed type is "builtins.object"
+reveal_type(Number(17).value)  # N: Revealed type is "builtins.int"
+reveal_type(c_wchar_p("text").value)  # N: Revealed type is "builtins.str | None"
+[builtins fixtures/floatdict.pyi]
+[typing fixtures/typing-medium.pyi]
+
+[case testCtypesOutparamRequiredPositionalRejected]
+from ctypes import c_int
+
+class Required(c_int):
+    def __ctypes_from_outparam__(self, value: int) -> str:
+        return "converted"
+
+Required().__ctypes_from_outparam__()
+[builtins fixtures/floatdict.pyi]
+[typing fixtures/typing-medium.pyi]
+[out]
+main:4: error: Signature of "__ctypes_from_outparam__" incompatible with supertype "_ctypes._SimpleCData"
+main:4: note:      Superclass:
+main:4: note:          def __ctypes_from_outparam__(self) -> object
+main:4: note:      Subclass:
+main:4: note:          def __ctypes_from_outparam__(self, value: int) -> str
+main:4: error: Signature of "__ctypes_from_outparam__" incompatible with supertype "_ctypes._CData"
+main:4: note:      Superclass:
+main:4: note:          def __ctypes_from_outparam__(self) -> object
+main:4: note:      Subclass:
+main:4: note:          def __ctypes_from_outparam__(self, value: int) -> str
+main:7: error: Missing positional argument "value" in call to "__ctypes_from_outparam__" of "Required"
+
+[case testCtypesOutparamRequiredKeywordRejected]
+from ctypes import c_int
+
+class Required(c_int):
+    def __ctypes_from_outparam__(self, *, value: int) -> str:
+        return "converted"
+
+Required().__ctypes_from_outparam__()
+[builtins fixtures/floatdict.pyi]
+[typing fixtures/typing-medium.pyi]
+[out]
+main:4: error: Signature of "__ctypes_from_outparam__" incompatible with supertype "_ctypes._SimpleCData"
+main:4: note:      Superclass:
+main:4: note:          def __ctypes_from_outparam__(self) -> object
+main:4: note:      Subclass:
+main:4: note:          def __ctypes_from_outparam__(self, *, value: int) -> str
+main:4: error: Signature of "__ctypes_from_outparam__" incompatible with supertype "_ctypes._CData"
+main:4: note:      Superclass:
+main:4: note:          def __ctypes_from_outparam__(self) -> object
+main:4: note:      Subclass:
+main:4: note:          def __ctypes_from_outparam__(self, *, value: int) -> str
+main:7: error: Missing named argument "value" for "__ctypes_from_outparam__" of "Required"
+
+[case testCtypesOutparamReturnValueAndConsumerErrors]
+from ctypes import c_int
+
+class BadBody(c_int):
+    def __ctypes_from_outparam__(self) -> str:
+        return 17  # E: Incompatible return value type (got "int", expected "str")
+
+class Text(c_int):
+    def __ctypes_from_outparam__(self) -> str:
+        return "converted"
+
+number: int = Text(17).__ctypes_from_outparam__()  # E: Incompatible types in assignment (expression has type "str", variable has type "int")
+Text(17).value = "bad"  # E: Incompatible types in assignment (expression has type "str", variable has type "int")
+unknown = c_int(17).__ctypes_from_outparam__()
+number = unknown  # E: Incompatible types in assignment (expression has type "object", variable has type "int")
+unknown.arbitrary_member  # E: "object" has no attribute "arbitrary_member"
+unknown + 1  # E: Unsupported left operand type for + ("object")
+[builtins fixtures/floatdict.pyi]
+[typing fixtures/typing-medium.pyi]
+
+[case testCtypesOutparamConstructorsRetainValueType]
+from ctypes import c_int, c_wchar_p
+
+c_int(17)
+c_wchar_p("text")
+c_wchar_p(None)
+c_int("bad")  # E: Argument 1 to "c_int" has incompatible type "str"; expected "int"
+c_wchar_p(17)  # Native pointer-address constructor remains valid.
+[builtins fixtures/floatdict.pyi]
+[typing fixtures/typing-medium.pyi]
