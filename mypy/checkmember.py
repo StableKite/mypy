@@ -10,6 +10,7 @@ from mypy.checker_shared import TypeCheckerSharedApi
 from mypy.erasetype import erase_typevars
 from mypy.expandtype import (
     expand_self_type,
+    expand_type,
     expand_type_by_instance,
     freshen_all_functions_type_vars,
 )
@@ -69,6 +70,7 @@ from mypy.types import (
     TypedDictType,
     TypeOfAny,
     TypeType,
+    TypeVarId,
     TypeVarLikeType,
     TypeVarTupleType,
     TypeVarType,
@@ -408,6 +410,22 @@ def analyze_type_callable_member_access(name: str, typ: FunctionLike, mx: Member
     # TODO super?
     instance_type = typ.items[0].get_instance_type(force_fallback=True)
     if isinstance(instance_type, Instance):
+        # Attribute access binds the defaults of an unspecialized class, even
+        # when the attribute is an alternative constructor. Keep parameters
+        # without defaults available for inference and leave method-local
+        # parameters alone.
+        original_vars: Sequence[TypeVarLikeType] = typ.items[0].variables
+        class_vars = {variable.id for variable in instance_type.type.defn.type_vars}
+        defaults: dict[TypeVarId, Type] = {}
+        for variable in original_vars:
+            if variable.id in class_vars and variable.has_default():
+                defaults[variable.id] = expand_type(variable.default, defaults)
+        if defaults:
+            expanded = expand_type(instance_type, defaults)
+            assert isinstance(expanded, Instance)
+            instance_type = expanded
+            mx = mx.copy_modified(self_type=expand_type(mx.self_type, defaults))
+            original_vars = [variable for variable in original_vars if variable.id not in defaults]
         if not mx.is_operator:
             # When Python sees an operator (eg `3 == 4`), it automatically translates that
             # into something like `int.__eq__(3, 4)` instead of `(3).__eq__(4)` as an
@@ -424,11 +442,7 @@ def analyze_type_callable_member_access(name: str, typ: FunctionLike, mx: Member
             # See https://github.com/python/mypy/pull/1787 for more info.
             # TODO: do not rely on same type variables being present in all constructor overloads.
             result = analyze_class_attribute_access(
-                instance_type,
-                name,
-                mx,
-                original_vars=typ.items[0].variables,
-                mcs_fallback=typ.fallback,
+                instance_type, name, mx, original_vars=original_vars, mcs_fallback=typ.fallback
             )
             if result:
                 return result

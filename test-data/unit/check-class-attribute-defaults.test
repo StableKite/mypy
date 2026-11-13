@@ -1,0 +1,127 @@
+[case testClassDefaultsBindOnMethodAttributeAccess]
+from typing import Generic, TypeVar, Self, assert_type
+T = TypeVar('T', default=int)
+class C(Generic[T]):
+    def __init__(self, value: T) -> None:
+        self.value = value
+    def method(self, value: T) -> T:
+        return value
+    @classmethod
+    def identity(cls, value: T) -> T:
+        return value
+    @classmethod
+    def make(cls, value: T) -> Self:
+        return cls(value)
+assert_type(C('value'), C[str])
+assert_type(C.identity(1), int)
+assert_type(C[str].identity('value'), str)
+assert_type(C.method(C(1), 2), int)
+assert_type(C.make(1), C[int])
+assert_type(C[str].make('value'), C[str])
+C.identity('wrong')  # E: Argument 1 to "identity" of "C" has incompatible type "str"; expected "int"
+C[str].identity(1)  # E: Argument 1 to "identity" of "C" has incompatible type "int"; expected "str"
+C.make('wrong')  # E: Argument 1 to "make" of "C" has incompatible type "str"; expected "int"
+[builtins fixtures/tuple.pyi]
+
+[case testClassDefaultsInheritedAndMethodLocalVariables]
+from typing import Generic, TypeVar, Self, assert_type
+T = TypeVar('T', default=int)
+U = TypeVar('U', default=str)
+class C(Generic[T]):
+    def __init__(self, value: T) -> None:
+        self.value = value
+    @classmethod
+    def make(cls, value: T) -> Self:
+        return cls(value)
+    @classmethod
+    def local(cls, value: U) -> U:
+        return value
+class D(C[T]):
+    pass
+assert_type(D.make(1), D[int])
+assert_type(D[str].make('value'), D[str])
+assert_type(D.local(1), int)
+assert_type(D.local('value'), str)
+D.make('wrong')  # E: Argument 1 to "make" of "C" has incompatible type "str"; expected "int"
+[builtins fixtures/tuple.pyi]
+
+[case testClassDefaultsKeepNondefaultInference]
+from typing import Generic, TypeVar, assert_type
+T = TypeVar('T')
+class C(Generic[T]):
+    @classmethod
+    def identity(cls, value: T) -> T:
+        return value
+assert_type(C.identity(1), int)
+assert_type(C.identity('value'), str)
+assert_type(C[int].identity(1), int)
+C[int].identity('wrong')  # E: Argument 1 to "identity" of "C" has incompatible type "str"; expected "int"
+[builtins fixtures/tuple.pyi]
+
+[case testClassDefaultsDependentDefaultsBindInOrder]
+from typing import Generic, TypeVar, assert_type
+T = TypeVar('T', default=int)
+U = TypeVar('U', default=list[T])
+class C(Generic[T, U]):
+    @classmethod
+    def pair(cls, first: T, second: U) -> tuple[T, U]:
+        return first, second
+assert_type(C.pair(1, [2]), tuple[int, list[int]])
+assert_type(C[str].pair('value', ['other']), tuple[str, list[str]])
+assert_type(C[str, bytes].pair('value', b'other'), tuple[str, bytes])
+C.pair(1, ['wrong'])  # E: List item 0 has incompatible type "str"; expected "int"
+[builtins fixtures/tuple.pyi]
+
+[case testClassDefaultsParamSpecBindsOnAttributeAccess]
+from typing import Callable, Generic, ParamSpec, assert_type
+P = ParamSpec('P', default=[int, str])
+class C(Generic[P]):
+    @classmethod
+    def call(cls, function: Callable[P, bytes], *args: P.args, **kwargs: P.kwargs) -> bytes:
+        return function(*args, **kwargs)
+def parse(number: int, text: str) -> bytes:
+    return b'parsed'
+assert_type(C.call(parse, 1, 'value'), bytes)
+C.call(parse, 'wrong', 'value')  # E: Argument 2 to "call" of "C" has incompatible type "str"; expected "int"
+[builtins fixtures/tuple.pyi]
+
+[case testClassDefaultsTypeVarTupleBindsOnAttributeAccess]
+from typing import Generic, TypeVarTuple, Unpack, assert_type
+Ts = TypeVarTuple('Ts', default=Unpack[tuple[int, str]])
+class C(Generic[Unpack[Ts]]):
+    @classmethod
+    def values(cls, *values: Unpack[Ts]) -> tuple[Unpack[Ts]]:
+        return values
+assert_type(C.values(1, 'value'), tuple[int, str])
+assert_type(C[bytes].values(b'value'), tuple[bytes])
+C.values('wrong', 'value')  # E: Argument 1 to "values" of "C" has incompatible type "str"; expected "int"
+[builtins fixtures/tuple.pyi]
+
+[case testClassDefaultsRestrictedSelfOverloadRetainsNarrowOverride]
+from typing import Generic, Literal, TypeVar, overload, assert_type
+Kind = Literal['variadic', 'four']
+T = TypeVar('T', bound=Kind, covariant=True, default=Literal['variadic'])
+class Base(Generic[T]):
+    @overload
+    @classmethod
+    def parameters(cls: 'type[Base[Literal["variadic"]]]', *values: int | str) -> bytes: ...
+    @overload
+    @classmethod
+    def parameters(cls: 'type[Base[Kind]]', a: int, b: int, c: int, d: int, /) -> bytes: ...
+    @classmethod
+    def parameters(cls, *values: int | str) -> bytes:
+        return b'encoded'
+class Specific(Base[Literal['four']]):
+    @classmethod
+    def parameters(cls, a: int, b: int, c: int, d: int) -> bytes:
+        return b'encoded'
+assert_type(Base.parameters(), bytes)
+assert_type(Base.parameters('value', 1), bytes)
+assert_type(Specific.parameters(1, 2, 3, 4), bytes)
+assert_type(Specific.parameters(a=1, b=2, c=3, d=4), bytes)
+def use(factory: type[Base[Kind]]) -> None:
+    assert_type(factory.parameters(1, 2, 3, 4), bytes)
+    factory.parameters(1, 2, 3)  # E: Too few arguments for "parameters" of "Base"
+Specific.parameters(1, 2, 3)  # E: Missing positional argument "d" in call to "parameters" of "Specific"
+unsafe: type[Base] = Specific  # E: Incompatible types in assignment (expression has type "type[Specific]", variable has type "type[Base[Literal['variadic']]]")
+[builtins fixtures/tuple.pyi]
