@@ -192,8 +192,59 @@ def type_object_type(
         type_type = lookup_stdlib_typeinfo("builtins.type", modules_state.modules)
         fallback = Instance(type_type, [])
 
-    if init_index < new_index:
-        method: FuncBase | Decorator = init_method.node
+    if info.metaclass_type is not None:
+        call_method = info.metaclass_type.type.get_method("__call__")
+        if call_method is not None and call_method.info.fullname != "builtins.type":
+            call_signature = constructor_method_type(call_method, fallback)
+        else:
+            call_signature = None
+        if call_signature is not None:
+            assert call_method is not None
+            expanded_call = expand_type_by_instance(
+                call_signature, map_instance_to_supertype(info.metaclass_type, call_method.info)
+            )
+            assert isinstance(expanded_call, FunctionLike)
+            call_signature = bind_self(
+                expanded_call, TypeType.make_normalized(fill_typevars(info))
+            )
+            call_items = [
+                class_callable(item, info, None, fallback, None, is_new=True)
+                for item in call_signature.items
+            ]
+            if any(not constructor_return_is_instance(item.ret_type, info) for item in call_items):
+                meta_result = (
+                    call_items[0]
+                    if isinstance(call_signature, CallableType)
+                    else Overloaded(call_items)
+                )
+                if (
+                    allow_cache
+                    and state.strict_optional
+                    and not (isinstance(call_method, OverloadedFuncDef) and not call_method.type)
+                ):
+                    info.type_object_type = meta_result
+                return meta_result
+
+    new_callable: FunctionLike | None = None
+    if info.get("__new__") is not None and new_method.node.info.fullname != "builtins.object":
+        new_signature = constructor_method_type(new_method.node, fallback)
+        assert new_signature is not None
+        new_callable = type_object_type_from_function(
+            new_signature, info, new_method.node.info, fallback, is_new=True
+        )
+    from mypy.subtypes import is_equivalent
+
+    use_new_result = new_callable is not None and any(
+        not constructor_return_is_instance(item.ret_type, info)
+        or not is_equivalent(item.ret_type, fill_typevars(info))
+        for item in new_callable.items
+    )
+
+    if use_new_result:
+        method: FuncBase | Decorator = new_method.node
+        is_new = True
+    elif init_index < new_index:
+        method = init_method.node
         is_new = False
     elif init_index > new_index:
         method = new_method.node
@@ -243,6 +294,14 @@ def type_object_type(
         assert isinstance(method.type, FunctionLike)  # is_valid_constructor() ensures this
         t = method.type
     result = type_object_type_from_function(t, info, method.info, fallback, is_new)
+    if use_new_result:
+        # Keep the constructor stage through overload selection, inference and
+        # cache serialization. A generic __new__ may evaluate to an instance of
+        # this class only after its arguments have been checked.
+        if isinstance(result, CallableType):
+            result = result.copy_modified(special_sig="new")
+        else:
+            result = Overloaded([item.copy_modified(special_sig="new") for item in result.items])
     # Tuple constructor in typeshed is imprecise (and precise one is impossible to express),
     # so we special-case constructors for tuple types. Note we skip the tuple class itself
     # as a micro-optimization, since it is unlikely one would write tuple((1, 2)).
@@ -256,6 +315,64 @@ def type_object_type(
     return result
 
 
+def constructor_return_is_instance(typ: Type, info: TypeInfo) -> bool:
+    """Whether every possible __new__ result belongs to the constructed class.
+
+    This models the nominal runtime isinstance check, not structural protocol
+    assignability. Per the constructor specification, a union containing an
+    unrelated member (including explicit Any) skips __init__ evaluation.
+    """
+    typ = get_proper_type(typ)
+    if isinstance(typ, UnionType):
+        return all(constructor_return_is_instance(item, info) for item in typ.items)
+    if isinstance(typ, TypeVarType):
+        if typ.values:
+            return all(constructor_return_is_instance(item, info) for item in typ.values)
+        return constructor_return_is_instance(typ.upper_bound, info)
+    if isinstance(typ, (TupleType, LiteralType, TypedDictType)):
+        typ = typ.partial_fallback if isinstance(typ, TupleType) else typ.fallback
+    if isinstance(typ, Instance):
+        return info in typ.type.mro
+    return isinstance(typ, AnyType) and typ.type_of_any == TypeOfAny.unannotated
+
+
+def abstract_constructor_result(typ: Type, info: TypeInfo) -> TypeInfo | None:
+    """Find an abstract possible allocation, excluding unrelated return values."""
+    typ = get_proper_type(typ)
+    if isinstance(typ, (TupleType, LiteralType, TypedDictType)):
+        typ = typ.partial_fallback if isinstance(typ, TupleType) else typ.fallback
+    if isinstance(typ, UnionType):
+        for item in typ.items:
+            abstract = abstract_constructor_result(item, info)
+            if abstract is not None:
+                return abstract
+    elif isinstance(typ, TypeVarType):
+        return abstract_constructor_result(typ.upper_bound, info)
+    elif isinstance(typ, Instance) and info in typ.type.mro and typ.type.is_abstract:
+        return typ.type
+    return None
+
+
+def constructor_init_result_types(typ: Type) -> Iterable[Type]:
+    """Result instances whose non-object __init__ participates in the call."""
+    typ = get_proper_type(typ)
+    if isinstance(typ, UnionType):
+        for item in typ.items:
+            yield from constructor_init_result_types(item)
+    elif isinstance(typ, TypeVarType):
+        yield from constructor_init_result_types(typ.upper_bound)
+    else:
+        if isinstance(typ, (TupleType, LiteralType, TypedDictType)):
+            instance = typ.partial_fallback if isinstance(typ, TupleType) else typ.fallback
+        elif isinstance(typ, Instance):
+            instance = typ
+        else:
+            return
+        method = instance.type.get_method("__init__")
+        if method is not None and method.info.fullname != "builtins.object":
+            yield typ
+
+
 def is_valid_constructor(n: SymbolNode | None) -> bool:
     """Does this node represents a valid constructor method?
 
@@ -267,6 +384,15 @@ def is_valid_constructor(n: SymbolNode | None) -> bool:
     if isinstance(n, Decorator):
         return isinstance(get_proper_type(n.type), FunctionLike)
     return False
+
+
+def constructor_method_type(
+    method: FuncBase | Decorator, fallback: Instance
+) -> FunctionLike | None:
+    if isinstance(method, FuncBase):
+        return function_type(method, fallback)
+    typ = get_proper_type(method.type)
+    return typ if isinstance(typ, FunctionLike) else None
 
 
 def type_object_type_from_function(
@@ -356,6 +482,9 @@ def class_callable(
         and (
             isinstance(explicit_type, AnyType)
             and explicit_type.type_of_any != TypeOfAny.unannotated
+            or not constructor_return_is_instance(
+                explicit_type, def_info if def_info is not None else info
+            )
             or not is_equivalent(default_def_ret_type, explicit_type, ignore_type_params=True)
         )
     ):

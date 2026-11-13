@@ -488,7 +488,7 @@ reveal_type(int())  # N: Revealed type is "Literal[0]"
 from typing import Literal
 
 class Foo:
-    def __new__(cls) -> Literal[1]: pass # E: Incompatible return type for "__new__" (returns "Literal[1]", but must return a subtype of "Foo")
+    def __new__(cls) -> Literal[1]: pass # The declared __new__ result is permitted by the constructor specification.
 
 [builtins fixtures/__new__.pyi]
 [typing fixtures/typing-medium.pyi]
@@ -7360,7 +7360,7 @@ reveal_type(C(1))  # N: Revealed type is "__main__.C"
 # Check for invalid __new__ typing
 
 class A:
-    def __new__(cls) -> int:  # E: Incompatible return type for "__new__" (returns "int", but must return a subtype of "A")
+    def __new__(cls) -> int:  # The declared __new__ result is permitted by the constructor specification.
         pass
 
 reveal_type(A())  # N: Revealed type is "builtins.int"
@@ -7402,10 +7402,10 @@ from typing import Tuple, Optional
 # Check for some cases that aren't allowed
 
 class X:
-    def __new__(cls) -> Optional[Y]:  # E: "__new__" must return a class instance (got "Y | None")
+    def __new__(cls) -> Optional[Y]:  # The declared __new__ result is permitted by the constructor specification.
         pass
 class Y:
-    def __new__(cls) -> Optional[int]:  # E: "__new__" must return a class instance (got "int | None")
+    def __new__(cls) -> Optional[int]:  # The declared __new__ result is permitted by the constructor specification.
         pass
 
 
@@ -7429,7 +7429,7 @@ from typing import TypeVar, Any
 # test type var from a different argument
 TX = TypeVar('TX', bound='X')
 class X:
-    def __new__(cls, x: TX) -> TX:  # E: "__new__" must return a class instance (got "TX")
+    def __new__(cls, x: TX) -> TX:  # The declared __new__ result is permitted by the constructor specification.
         pass
 
 [case testNewReturnType9]
@@ -7480,7 +7480,7 @@ class Foo(Protocol):
     def foo(self) -> str: ...
 
 class A:
-    def __new__(cls) -> Foo: ...  # E: Incompatible return type for "__new__" (returns "Foo", but must return a subtype of "A")
+    def __new__(cls) -> Foo: ...  # The declared __new__ result is permitted by the constructor specification.
 
 reveal_type(A())  # N: Revealed type is "__main__.Foo"
 reveal_type(A().foo())  # N: Revealed type is "builtins.str"
@@ -7489,7 +7489,7 @@ reveal_type(A().foo())  # N: Revealed type is "builtins.str"
 from __future__ import annotations
 
 class A:
-    def __new__(cls) -> int: raise  # E: Incompatible return type for "__new__" (returns "int", but must return a subtype of "A")
+    def __new__(cls) -> int: raise  # The declared __new__ result is permitted by the constructor specification.
 
 class B(A):
     @classmethod
@@ -7524,7 +7524,7 @@ from typing import Generic, TypeVar
 
 T = TypeVar("T")
 class A(Generic[T]):
-    def __new__(cls, *args, **kwargs) -> T:  # E: "__new__" must return a class instance (got "T")
+    def __new__(cls, *args, **kwargs) -> T:  # The declared __new__ result is permitted by the constructor specification.
         ...
 
 class Model:
@@ -7554,7 +7554,7 @@ class A:
         return A()
 
 class B(A):
-    def __new__(cls) -> A:  # E: Incompatible return type for "__new__" (returns "A", but must return a subtype of "B")
+    def __new__(cls) -> A:  # The declared __new__ result is permitted by the constructor specification.
         return super().__new__(cls)
 
 class C(B): ...

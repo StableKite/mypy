@@ -1945,35 +1945,16 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
                     self.fail(message_registry.PARAM_TYPE_EXPECTED, fdef)
 
     def check___new___signature(self, fdef: FuncDef, typ: CallableType) -> None:
-        self_type = fill_typevars_with_any(fdef.info)
-        bound_type = bind_self(typ, self_type, is_classmethod=True)
-        # Check that __new__ (after binding cls) returns an instance
-        # type (or any).
+        # A metaclass constructs a class definition. Ordinary __new__ methods,
+        # in contrast, may return any type; type.__call__ invokes __init__ only
+        # when the result is an instance of the class being constructed.
         if fdef.info.is_metaclass():
+            self_type = fill_typevars_with_any(fdef.info)
+            bound_type = bind_self(typ, self_type, is_classmethod=True)
             # This is a metaclass, so it must return a new unrelated type.
             self.check_subtype(
                 bound_type.ret_type,
                 self.type_type(),
-                fdef,
-                message_registry.INVALID_NEW_TYPE,
-                "returns",
-                "but must return a subtype of",
-            )
-        elif not isinstance(
-            get_proper_type(bound_type.ret_type),
-            (AnyType, Instance, TupleType, UninhabitedType, LiteralType),
-        ):
-            self.fail(
-                message_registry.NON_INSTANCE_NEW_TYPE.format(
-                    format_type(bound_type.ret_type, self.options)
-                ),
-                fdef,
-            )
-        else:
-            # And that it returns a subtype of the class
-            self.check_subtype(
-                bound_type.ret_type,
-                self_type,
                 fdef,
                 message_registry.INVALID_NEW_TYPE,
                 "returns",

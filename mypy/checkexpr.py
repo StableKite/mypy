@@ -16,7 +16,7 @@ import mypy.errorcodes as codes
 from mypy import applytype, erasetype, join, message_registry, nodes, operators, types
 from mypy.argmap import ArgTypeExpander, map_actuals_to_formals, map_formals_to_actuals
 from mypy.checker_shared import ExpressionCheckerSharedApi
-from mypy.checkmember import analyze_member_access, has_operator
+from mypy.checkmember import analyze_member_access, check_self_arg, has_operator
 from mypy.checkstrformat import StringFormatterChecker
 from mypy.constant_fold import constant_fold_expr
 from mypy.erasetype import erase_type, remove_instance_last_known_values, replace_meta_vars
@@ -146,7 +146,11 @@ from mypy.typeanal import (
     validate_instance,
 )
 from mypy.typeops import (
+    abstract_constructor_result,
     callable_type,
+    constructor_init_result_types,
+    constructor_method_type,
+    constructor_return_is_instance,
     custom_special_method,
     erase_to_union_or_bound,
     false_only,
@@ -1716,26 +1720,6 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
                 message_registry.CANNOT_INSTANTIATE_PROTOCOL.format(callee.type_object().name),
                 context,
             )
-        elif (
-            callee.is_type_obj()
-            and callee.type_object().is_abstract
-            # Exception for Type[...]
-            and not callee.from_type_type
-            and not callee.type_object().fallback_to_any
-        ):
-            type = callee.type_object()
-            # Determine whether the implicitly abstract attributes are functions with
-            # None-compatible return types.
-            abstract_attributes: dict[str, bool] = {}
-            for attr_name, abstract_status in type.abstract_attributes:
-                if abstract_status == IMPLICITLY_ABSTRACT:
-                    abstract_attributes[attr_name] = self.can_return_none(type, attr_name)
-                else:
-                    abstract_attributes[attr_name] = False
-            self.msg.cannot_instantiate_abstract_class(
-                callee.type_object().name, abstract_attributes, context
-            )
-
         var_arg = callee.var_arg()
         if var_arg and isinstance(var_arg.typ, UnpackType):
             # It is hard to support multiple variadic unpacks (except for old-style *args: int),
@@ -1902,6 +1886,61 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
         ):
             callee = callee.copy_modified(ret_type=TypeType.make_normalized(arg_types[0]))
 
+        if callee.special_sig == "new" or (
+            callee.is_type_obj()
+            and isinstance(callee.definition, FuncDef)
+            and callee.definition.name == "__new__"
+        ):
+            constructed_type = callee.instance_type
+            if constructed_type is None:
+                constructed_type = callee.get_instance_type()
+            constructed_instance = constructed_type
+            if isinstance(constructed_instance, TupleType):
+                constructed_instance = tuple_fallback(constructed_instance)
+            assert isinstance(constructed_instance, Instance)
+            self.check_constructor_cls(constructed_type, constructed_instance, callee, context)
+        if callee.special_sig == "new" and constructor_return_is_instance(
+            callee.ret_type, constructed_instance.type
+        ):
+            # The result of a generic/overloaded __new__ can become an instance
+            # of the constructed class only after argument inference. Bind
+            # __init__ to that actual result, never to an unrelated object.
+            for init_result in constructor_init_result_types(callee.ret_type):
+                init_type = analyze_member_access(
+                    "__init__",
+                    init_result,
+                    context,
+                    is_lvalue=False,
+                    is_super=False,
+                    is_operator=False,
+                    original_type=init_result,
+                    chk=self.chk,
+                    is_constructor=True,
+                )
+                self.check_call(
+                    init_type, args, arg_kinds, context, arg_names, object_type=init_result
+                )
+
+        if (
+            callee.is_type_obj()
+            and not callee.from_type_type
+            and not callee.type_object().fallback_to_any
+            and not callee.type_object().is_protocol
+        ):
+            abstract_type = abstract_constructor_result(callee.ret_type, callee.type_object())
+            if abstract_type is not None:
+                abstract_attributes: dict[str, bool] = {}
+                for attr_name, abstract_status in abstract_type.abstract_attributes:
+                    if abstract_status == IMPLICITLY_ABSTRACT:
+                        abstract_attributes[attr_name] = self.can_return_none(
+                            abstract_type, attr_name
+                        )
+                    else:
+                        abstract_attributes[attr_name] = False
+                self.msg.cannot_instantiate_abstract_class(
+                    abstract_type.name, abstract_attributes, context
+                )
+
         if callable_node:
             # Store the inferred callable type.
             self.chk.store_type(callable_node, callee)
@@ -1923,6 +1962,35 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
             )
             callee = callee.copy_modified(ret_type=new_ret_type)
         return callee.ret_type, callee
+
+    def check_constructor_cls(
+        self,
+        constructed_type: ProperType,
+        instance: Instance,
+        callee: CallableType,
+        context: Context,
+    ) -> None:
+        """Validate the implicit cls argument before discarding its parameter."""
+        # Overload resolution must not validate cls against a different
+        # overload merely because that other overload accepts this class.
+        definition = callee.definition
+        if isinstance(definition, Decorator):
+            definition = definition.func
+        method = (
+            definition
+            if isinstance(definition, FuncDef) and definition.name == "__new__"
+            else instance.type.get_method("__new__")
+        )
+        if method is None:
+            return
+        signature = constructor_method_type(method, self.named_type("builtins.function"))
+        if signature is None:
+            return
+        expanded = expand_type_by_instance(
+            signature, map_instance_to_supertype(instance, method.info)
+        )
+        assert isinstance(expanded, FunctionLike)
+        check_self_arg(expanded, constructed_type, True, context, "__new__", self.msg)
 
     def can_return_none(self, type: TypeInfo, attr_name: str) -> bool:
         """Is the given attribute a method with a None-compatible return type?

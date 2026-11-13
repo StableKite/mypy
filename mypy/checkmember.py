@@ -103,9 +103,11 @@ class MemberContext:
         rvalue: Expression | None = None,
         suppress_errors: bool = False,
         preserve_type_var_ids: bool = False,
+        is_constructor: bool = False,
     ) -> None:
         self.is_lvalue = is_lvalue
         self.is_super = is_super
+        self.is_constructor = is_constructor
         self.is_operator = is_operator
         self.original_type = original_type
         self.self_type = self_type or original_type
@@ -144,6 +146,7 @@ class MemberContext:
         mx = MemberContext(
             is_lvalue=self.is_lvalue,
             is_super=self.is_super,
+            is_constructor=self.is_constructor,
             is_operator=self.is_operator,
             original_type=self.original_type,
             context=self.context,
@@ -182,6 +185,7 @@ def analyze_member_access(
     is_self: bool = False,
     rvalue: Expression | None = None,
     suppress_errors: bool = False,
+    is_constructor: bool = False,
 ) -> Type:
     """Return the type of attribute 'name' of 'typ'.
 
@@ -217,6 +221,7 @@ def analyze_member_access(
     mx = MemberContext(
         is_lvalue=is_lvalue,
         is_super=is_super,
+        is_constructor=is_constructor,
         is_operator=is_operator,
         original_type=original_type,
         context=context,
@@ -328,7 +333,7 @@ def analyze_instance_member_access(
 
     method = info.get_method(name)
 
-    if name == "__init__" and not mx.is_super and not info.is_final:
+    if name == "__init__" and not mx.is_super and not mx.is_constructor and not info.is_final:
         if not method or not method.is_final:
             # Accessing __init__ in statically typed code would compromise
             # type safety unless used via super() or the method/class is final.
