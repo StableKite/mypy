@@ -55,7 +55,7 @@ class CustomPythonBuild(build_py):
     def pin_version(self) -> None:
         path = os.path.join(self.build_lib, "mypy")
         self.mkpath(path)
-        with open(os.path.join(path, "version.py"), "w") as stream:
+        with open(os.path.join(path, "version.py"), "w", newline="\n") as stream:
             stream.write(f'__version__ = "{version}"\n')
 
     def run(self) -> None:
