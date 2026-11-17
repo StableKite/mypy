@@ -5858,7 +5858,7 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
             # allow such imprecise annotations for use with super(), where we fall back
             # to the current class MRO instead. This works only from inside a method.
             metaclass_self = (
-                method is not None
+                isinstance(method, FuncDef)
                 and e.info is not None
                 and method.info is e.info
                 and e.info.is_metaclass()
