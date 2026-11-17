@@ -18,6 +18,7 @@ from mypy.lookup import lookup_stdlib_typeinfo
 from mypy.maptype import map_instance_to_supertype
 from mypy.meet import is_overlapping_types
 from mypy.messages import MessageBuilder
+from mypy.methodshadow import raw_contract, writable_method
 from mypy.modules_state import modules_state
 from mypy.nodes import (
     ARG_POS,
@@ -104,10 +105,12 @@ class MemberContext:
         suppress_errors: bool = False,
         preserve_type_var_ids: bool = False,
         is_constructor: bool = False,
+        preserve_method: bool = False,
     ) -> None:
         self.is_lvalue = is_lvalue
         self.is_super = is_super
         self.is_constructor = is_constructor
+        self.preserve_method = preserve_method
         self.is_operator = is_operator
         self.original_type = original_type
         self.self_type = self_type or original_type
@@ -147,6 +150,7 @@ class MemberContext:
             is_lvalue=self.is_lvalue,
             is_super=self.is_super,
             is_constructor=self.is_constructor,
+            preserve_method=self.preserve_method,
             is_operator=self.is_operator,
             original_type=self.original_type,
             context=self.context,
@@ -350,6 +354,15 @@ def analyze_instance_member_access(
     ):
         mx.msg.note("Occurrence of '{}.{}'".format(*state.find_occurrences), mx.context)
 
+    contract = raw_contract(info, name)
+    if contract is not None and not (mx.is_super or mx.is_operator or mx.preserve_method):
+        owner, declared = contract
+        view = expand_method_contract(typ, owner, declared, mx.self_type)
+        if not mx.is_lvalue or (
+            (mx.rvalue is not None or mx.suppress_errors) and writable_method(typ.type, name)
+        ):
+            return view
+
     # Look up the member. First look up the method dictionary.
     if method and not isinstance(method, Decorator):
         if mx.is_super and not mx.suppress_errors:
@@ -393,6 +406,15 @@ def analyze_instance_member_access(
     else:
         # Not a method.
         return analyze_member_var_access(name, typ, info, mx)
+
+
+def expand_method_contract(
+    instance: Instance, owner: TypeInfo, declared: Type, self_type: Type
+) -> Type:
+    view = expand_type_by_instance(declared, map_instance_to_supertype(instance, owner))
+    if owner.self_type is not None:
+        view = expand_type(view, {owner.self_type.id: self_type})
+    return view
 
 
 def validate_super_call(node: FuncBase, mx: MemberContext) -> None:

@@ -3686,6 +3686,7 @@ class TypeInfo(SymbolNode):
         "type_object_type",
         "default_depends",
         "typeddict_data",
+        "method_shadow_types",
     )
 
     _fullname: str  # Fully qualified name
@@ -3693,6 +3694,9 @@ class TypeInfo(SymbolNode):
     # information is also in the fullname, but is harder to extract in the
     # case of nested class definitions.
     module_name: str
+    # Explicit instance callable views of ordinary function descriptors. Keys
+    # include the declaring method so incremental body edits can remove them.
+    method_shadow_types: dict[str, mypy.types.Type]
     defn: ClassDef  # Corresponding ClassDef
     # Method Resolution Order: the order of looking up attributes. The first
     # value always to refers to this class.
@@ -3923,6 +3927,7 @@ class TypeInfo(SymbolNode):
         self.type_object_type = None
         self.default_depends = {}
         self.typeddict_data = None
+        self.method_shadow_types = {}
 
     def add_type_vars(self) -> None:
         self.has_type_var_tuple_type = False
@@ -4262,6 +4267,11 @@ class TypeInfo(SymbolNode):
             ),
             "deprecated": self.deprecated,
         }
+        contracts = self.live_method_shadow_types()
+        if contracts:
+            data["method_shadow_types"] = {
+                name: typ.serialize() for name, typ in contracts.items()
+            }
         return data
 
     @classmethod
@@ -4328,6 +4338,10 @@ class TypeInfo(SymbolNode):
                 data["dataclass_transform_spec"]
             )
         ti.deprecated = data.get("deprecated")
+        ti.method_shadow_types = {
+            name: mypy.types.deserialize_type(typ)
+            for name, typ in data.get("method_shadow_types", {}).items()
+        }
         return ti
 
     def write(self, data: WriteBuffer) -> None:
@@ -4376,6 +4390,7 @@ class TypeInfo(SymbolNode):
         else:
             self.dataclass_transform_spec.write(data)
         write_str_opt(data, self.deprecated)
+        mypy.types.write_type_map(data, self.live_method_shadow_types())
         write_tag(data, END_TAG)
 
     @classmethod
@@ -4450,8 +4465,24 @@ class TypeInfo(SymbolNode):
             assert tag == DT_SPEC
             ti.dataclass_transform_spec = DataclassTransformSpec.read(data)
         ti.deprecated = read_str_opt(data)
+        ti.method_shadow_types = mypy.types.read_type_map(data)
         assert read_tag(data) == END_TAG
         return ti
+
+    def live_method_shadow_types(self) -> dict[str, mypy.types.Type]:
+        """Ignore declarations whose owning method was removed or replaced."""
+        result = {}
+        for key, typ in self.method_shadow_types.items():
+            owner, separator, _ = key.partition(".")
+            symbol = self.names.get(owner)
+            if not separator or symbol is None:
+                continue
+            node = symbol.node
+            if isinstance(node, (FuncDef, OverloadedFuncDef)) and node.info is self:
+                result[key] = typ
+            elif isinstance(node, Decorator) and node.func.info is self:
+                result[key] = typ
+        return result
 
 
 class FakeInfo(TypeInfo):

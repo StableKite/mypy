@@ -324,6 +324,10 @@ def snapshot_definition(node: SymbolNode | None, common: SymbolSnapshot) -> Symb
         symbol_table = snapshot_symbol_table(prefix, node.names)
         # Special dependency for abstract attribute handling.
         symbol_table["(abstract)"] = ("Abstract", tuple(sorted(node.abstract_attributes)))
+        for key, typ in sorted(node.live_method_shadow_types().items()):
+            _, _, name = key.partition(".")
+            original = symbol_table.get(name, ())
+            symbol_table[name] = (*original, "Instance callable", snapshot_type(typ))
         return ("TypeInfo", common, attrs, symbol_table)
     else:
         # Other node types are handled elsewhere.

@@ -322,6 +322,9 @@ class DependencyVisitor(TraverserVisitor):
 
     def process_type_info(self, info: TypeInfo) -> None:
         target = self.scope.current_full_target()
+        for key, typ in info.live_method_shadow_types().items():
+            _, _, name = key.partition(".")
+            self.add_type_dependencies(typ, target=make_trigger(info.fullname + "." + name))
         for base in info.bases:
             self.add_type_dependencies(base, target=target)
         if info.tuple_type:

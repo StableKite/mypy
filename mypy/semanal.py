@@ -69,6 +69,7 @@ from mypy.messages import (
     best_matches,
     pretty_seq,
 )
+from mypy.methodshadow import can_record_contract, ordinary_method, record_contract, reset_owner
 from mypy.mro import MroError, calculate_mro
 from mypy.nodes import (
     ARG_NAMED,
@@ -1740,6 +1741,8 @@ class SemanticAnalyzer(
                     else:
                         defn.arguments[0].variable.is_cls = True
 
+                if isinstance(defn, FuncDef) and self.type is not None and defn.info is self.type:
+                    reset_owner(self.type, defn.name)
                 defn.body.accept(self)
             self.function_stack.pop()
 
@@ -3436,6 +3439,17 @@ class SemanticAnalyzer(
         self.store_final_status(s)
         self.check_classvar(s)
         self.process_type_annotation(s)
+        if (
+            s.type is not None
+            and not s.is_final_def
+            and self.type is not None
+            and self.function_stack
+        ):
+            owner = self.function_stack[-1]
+            if isinstance(owner, FuncDef) and owner.info is self.type and owner.type is not None:
+                for lvalue in s.lvalues:
+                    if isinstance(lvalue, MemberExpr) and self.is_self_member_ref(lvalue):
+                        record_contract(self.type, owner.name, lvalue.name, s.type)
         self.analyze_rvalue_as_type_form(s)
         self.apply_dynamic_class_hook(s)
         if not s.type:
@@ -4801,6 +4815,26 @@ class SemanticAnalyzer(
                 # are inside __init__, but we do this always to preserve historical behaviour.
                 if isinstance(cur_node.node, Var):
                     cur_node.node.is_abstract_var = False
+            preserve_method = False
+            if (
+                cur_node is None
+                and explicit_type
+                and not is_final
+                and ordinary_method(self.type, lval.name) is not None
+                and self.function_stack
+                and isinstance(self.function_stack[-1], FuncDef)
+                and self.function_stack[-1].type is not None
+                and isinstance(self.statement, AssignmentStmt)
+                and self.statement.type is not None
+            ):
+                # An inherited function also needs its class view preserved.
+                # Resolve just this candidate before deciding to create a Var;
+                # the regular annotation pass still stores/checks the type.
+                annotation = self.anal_type(self.statement.type)
+                if annotation is None or has_placeholder(annotation):
+                    self.defer(lval)
+                    return
+                preserve_method = can_record_contract(self.type, lval.name, annotation)
             if (
                 # If the attribute of self is not defined, create a new Var, ...
                 node is None
@@ -4809,7 +4843,7 @@ class SemanticAnalyzer(
                 # ... also an explicit declaration on self also creates a new Var.
                 # Note that `explicit_type` might have been erased for bare `Final`,
                 # so we also check if `is_final` is passed.
-                or (cur_node is None and (explicit_type or is_final))
+                or (cur_node is None and (explicit_type or is_final) and not preserve_method)
             ):
                 if self.type.is_protocol and node is None:
                     self.fail("Protocol members cannot be defined via assignment to self", lval)

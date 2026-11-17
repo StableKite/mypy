@@ -381,6 +381,8 @@ class NodeReplaceVisitor(TraverserVisitor):
     def process_type_info(self, info: TypeInfo | None) -> None:
         if info is None:
             return
+        for typ in info.method_shadow_types.values():
+            self.fixup_type(typ)
         self.fixup_type(info.declared_metaclass)
         self.fixup_type(info.metaclass_type)
         for target in info._promote:

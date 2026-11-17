@@ -1,0 +1,365 @@
+-- An explicit instance callable contract keeps the original class function.
+
+[case testMethodShadowExplicitAndBare]
+from typing import Callable
+class Explicit:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+class Bare:
+    def __init__(self) -> None:
+        self.call: Callable[[int], int]
+        self.call = self.initial
+        self.normal: Callable[[int], int] = self.initial
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+def use(first: Explicit, second: Bare) -> None:
+    result: int = first.call(1)
+    result = Explicit.call(first, value=1)
+    result = second.call(1)
+    result = Bare.call(second, value=1)
+    result = second.normal(1)
+
+[case testMethodShadowSeparateKeywordAndProtocolViews]
+from typing import Callable, Protocol
+class Dispatch:
+    def initial(self, other: int) -> int: return other
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+class Named(Protocol):
+    def call(self, value: int) -> int: ...
+class Positional(Protocol):
+    def call(self, value: int, /) -> int: ...
+def use(instance: Dispatch) -> None:
+    result: int = Dispatch.call(instance, value=1)
+    result = instance.call(1)
+    instance.call(value=1)  # E: Unexpected keyword argument "value"
+    named: Named = instance  # E: Incompatible types in assignment (expression has type "Dispatch", variable has type "Named")
+    positional: Positional = instance
+
+[case testMethodShadowSuperAndOperatorBypass]
+from typing import Callable
+class Base:
+    def initial(self, other: int) -> int: return other
+    def call(self, value: int) -> int: return value
+    def __call__(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+        self.__call__: Callable[[int], int] = self.initial
+class Child(Base):
+    def invoke(self) -> int:
+        return super().call(value=1)
+def use(instance: Base) -> None:
+    result: int = instance(value=1)
+    result = Base.__call__(instance, value=1)
+    instance.__call__(value=1)  # E: Unexpected keyword argument "value"
+
+[case testMethodShadowWritableOverrideInvariant]
+from typing import Callable
+class Base:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+class Narrow(Base):  # E: Override of "call" must preserve the inherited writable instance callable contract from "Base"
+    def call(self, value: int) -> bool: return True
+class Wide(Base):  # E: Override of "call" must preserve the inherited writable instance callable contract from "Base"
+    def call(self, value: object) -> int: return 1
+class Same(Base):
+    def call(self, value: int) -> int: return value
+[builtins fixtures/bool.pyi]
+
+[case testMethodShadowInheritedDeclarationOwner]
+from typing import Callable
+class Base:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+class Middle(Base):
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+class Child(Middle):  # E: Override of "call" must preserve the inherited writable instance callable contract from "Middle"
+    def call(self, value: object) -> int: return 1
+class Good(Middle):
+    def call(self, value: int) -> int: return value
+
+[case testMethodShadowInferredVariance]
+# flags: --python-version 3.12
+from typing import Callable
+class Source[T]:
+    def __init__(self, value: T) -> None:
+        self._value = value
+        self.call: Callable[[], T] = self.initial
+    def initial(self) -> T: return self._value
+    def call(self) -> T: return self._value
+def use(strings: Source[str]) -> None:
+    objects: Source[object] = strings  # E: Incompatible types in assignment (expression has type "Source[str]", variable has type "Source[object]")
+
+[case testMethodShadowExplicitVariance]
+from typing import Callable, Generic, TypeVar
+T = TypeVar('T', covariant=True)
+class Source(Generic[T]):
+    def __init__(self, value: T) -> None:
+        self._value = value
+        self.call: Callable[[], T] = self.initial  # E: Cannot assign to a method \
+            # E: Explicit instance callable contract must match the bound method and inherited writable contract
+    def initial(self) -> T: return self._value
+    def call(self) -> T: return self._value
+
+[case testMethodShadowInvalidWritesRemainErrors]
+from typing import Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+def free(value: int) -> int: return value
+def use(instance: Dispatch) -> None:
+    instance.call = free  # E: Cannot assign to a method
+    instance.call = lambda value: value  # E: Cannot assign to a method
+    instance.call = Dispatch.initial  # E: Cannot assign to a method \
+        # E: Incompatible types in assignment (expression has type "Callable[[Dispatch, int], int]", variable has type "Callable[[int], int]")
+    Dispatch.call = Dispatch.initial  # E: Cannot assign to a method
+    del instance.call  # E: Cannot assign to a method
+
+[case testMethodShadowCallbackNames]
+from typing import Protocol
+class Callback(Protocol):
+    def __call__(self, value: int) -> int: ...
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callback = self.initial
+def use(instance: Dispatch) -> int:
+    return instance.call(value=1) + Dispatch.call(instance, value=1)
+
+[case testMethodShadowWithoutDictionary]
+from typing import Callable
+class Dispatch:
+    __slots__ = ()
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial  # E: Cannot assign to a method
+[builtins fixtures/tuple.pyi]
+
+[case testMethodShadowUnknownContractsRemainErrors]
+from typing import Any, Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[..., Any] = self.initial  # E: Cannot assign to a method \
+            # E: Explicit instance callable contract must match the bound method and inherited writable contract
+
+[case testMethodShadowUnknownRhsRemainsError]
+from typing import Any, Callable
+class Dispatch:
+    def call(self, value: int) -> int: return value
+    def __init__(self, unknown: Any) -> None:
+        self.call: Callable[[int], int] = unknown  # E: Cannot assign to a method
+
+[case testMethodShadowMutableSelfRemainsError]
+from typing import Callable
+from typing_extensions import Self
+class Dispatch:
+    def initial(self) -> Self: return self
+    def call(self) -> Self: return self
+    def __init__(self) -> None:
+        self.call: Callable[[], Self] = self.initial  # E: Cannot assign to a method
+[builtins fixtures/tuple.pyi]
+
+[case testMethodShadowReadonlyAndDescriptorOverrides]
+from typing import Callable, final
+class Base:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+class Static(Base):  # E: Override of "call" must preserve the inherited writable instance callable contract from "Base"
+    @staticmethod
+    def call(value: int) -> int: return value
+class Class(Base):  # E: Override of "call" must preserve the inherited writable instance callable contract from "Base"
+    @classmethod
+    def call(cls, value: int) -> int: return value
+class Final(Base):  # E: Override of "call" must preserve the inherited writable instance callable contract from "Base"
+    @final
+    def call(self, value: int) -> int: return value
+class Property(Base):  # E: Override of "call" must preserve the inherited writable instance callable contract from "Base"
+    @property
+    def call(self) -> Callable[[int], int]: return self.initial
+[builtins fixtures/dataclasses.pyi]
+
+[case testMethodShadowUnchangedReadonlyCases]
+from typing import Callable, final
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def ordinary(self, value: int) -> int: return value
+    @final
+    def final(self, value: int) -> int: return value
+    @staticmethod
+    def static(value: int) -> int: return value
+    @classmethod
+    def clsmethod(cls, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.ordinary = self.initial  # E: Cannot assign to a method
+        self.final: Callable[[int], int] = self.initial  # E: Cannot assign to final attribute "final" \
+            # E: Cannot assign to a method
+        self.static: Callable[[int], int] = self.initial  # E: Cannot assign to a method
+        self.clsmethod: Callable[[int], int] = self.initial  # E: Cannot assign to a method
+[builtins fixtures/classmethod.pyi]
+
+[case testMethodShadowInheritedAnnotationsInvariant]
+from typing import Callable
+class Base:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+class Child(Base):
+    def replace(self) -> None:
+        self.call: Callable[[object], int] = self.initial  # E: Cannot assign to a method \
+            # E: Explicit instance callable contract must match the bound method and inherited writable contract \
+            # E: Incompatible types in assignment (expression has type "Callable[[int], int]", variable has type "Callable[[object], int]")
+
+[case testMethodShadowCallbackKeywordMismatch]
+from typing import Protocol
+class Callback(Protocol):
+    def __call__(self, value: int) -> int: ...
+class Dispatch:
+    def initial(self, other: int) -> int: return other
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callback = self.initial  # E: Incompatible types in assignment (expression has type "Callable[[int], int]", variable has type "Callback") \
+            # N: "Callback.__call__" has type "def __call__(self, value: int) -> int"
+
+[case testMethodShadowConsumerVariance]
+# flags: --python-version 3.12
+from typing import Callable
+class Consumer[T]:
+    def initial(self, value: T) -> None: pass
+    def call(self, value: T) -> None: pass
+    def __init__(self) -> None:
+        self.call: Callable[[T], None] = self.initial
+def use(objects: Consumer[object]) -> None:
+    strings: Consumer[str] = objects  # E: Incompatible types in assignment (expression has type "Consumer[object]", variable has type "Consumer[str]")
+
+[case testMethodShadowRecursiveResultVariance]
+# flags: --python-version 3.12
+from typing import Callable
+class Source[T]:
+    def initial(self) -> 'Source[T]': return self
+    def call(self) -> 'Source[T]': return self
+    def __init__(self) -> None:
+        self.call: Callable[[], Source[T]] = self.initial
+def use(strings: Source[str]) -> None:
+    objects: Source[object] = strings  # E: Incompatible types in assignment (expression has type "Source[str]", variable has type "Source[object]")
+
+[case testMethodShadowInheritedSlotsDictionary]
+from typing import Callable
+class Parent:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+class Child(Parent):
+    __slots__ = ()
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+[builtins fixtures/tuple.pyi]
+
+[case testMethodShadowMultipleDeclarationsInvariant]
+from typing import Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial  # E: Cannot assign to a method \
+            # E: Explicit instance callable contract must match the bound method and inherited writable contract
+    def replace(self) -> None:
+        self.call: Callable[[object], int] = self.initial  # E: Cannot assign to a method \
+            # E: Explicit instance callable contract must match the bound method and inherited writable contract
+
+[case testMethodShadowReboundSelfUsesLexicalClassContract]
+from typing import Callable
+class Base:
+    def initial(self) -> int: return 1
+    def call(self) -> int: return 1
+    def __init__(self) -> None:
+        self = Child()
+        self.call: Callable[[], bool] = self.initial  # E: Cannot assign to a method \
+            # E: Explicit instance callable contract must match the bound method and inherited writable contract
+class Child(Base):
+    def initial(self) -> bool: return True
+    def call(self) -> bool: return True
+    def __init__(self) -> None: pass
+[builtins fixtures/bool.pyi]
+
+[case testMethodShadowSpecializedSelfUsesGenericClassContract]
+from typing import Callable, Generic, TypeVar
+T = TypeVar('T')
+class Source(Generic[T]):
+    def call(self) -> T: ...
+    def initial(self) -> str: return 'text'
+    def configure(self: 'Source[str]') -> None:
+        self.call: Callable[[], str] = self.initial  # E: Cannot assign to a method \
+            # E: Explicit instance callable contract must match the bound method and inherited writable contract
+
+[case testMethodShadowAliasCannotNarrowKeywordContract]
+from typing import Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def other(self, other: int) -> int: return other
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+def use(instance: Dispatch) -> int:
+    instance.call = instance.initial
+    alias = instance
+    alias.call = instance.other
+    return instance.call(value=1)  # E: Unexpected keyword argument "value"
+
+[case testMethodShadowAliasCannotNarrowResultContract]
+from typing import Callable
+class Dispatch:
+    def initial(self) -> int: return 1
+    def boolean(self) -> bool: return True
+    def call(self) -> int: return 1
+    def __init__(self) -> None:
+        self.call: Callable[[], int] = self.initial
+def use(instance: Dispatch) -> bool:
+    instance.call = instance.boolean
+    alias = instance
+    alias.call = instance.initial
+    return instance.call()  # E: Incompatible return value type (got "int", expected "bool")
+[builtins fixtures/bool.pyi]
+
+[case testMethodShadowMetaclassWriteRemainsError]
+from typing import Callable
+class Meta(type):
+    def initial(cls) -> int: return 1
+    def call(cls) -> int: return 1
+    def configure(cls) -> None:
+        cls.call: Callable[[], int] = cls.initial  # E: Cannot assign to a method
+[builtins fixtures/type.pyi]
+
+[case testMethodShadowFrozenClassWriteRemainsError]
+from dataclasses import dataclass
+from typing import Callable
+@dataclass(frozen=True)
+class Dispatch:
+    def initial(self) -> int: return 1
+    def call(self) -> int: return 1
+    def replace(self) -> None:
+        self.call: Callable[[], int] = self.initial  # E: Cannot assign to a method
+[builtins fixtures/dataclasses.pyi]
+
+[case testMethodShadowUncheckedBodyCannotChangeClassInterface]
+# flags: --no-check-untyped-defs
+from typing import Callable
+class Dispatch:
+    def initial(self) -> str: return 'text'
+    def call(self) -> int: return 1
+    def __init__(self):
+        self.call: Callable[[], str] = self.initial  # N: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs
+result: str = Dispatch().call()  # E: Incompatible types in assignment (expression has type "int", variable has type "str")

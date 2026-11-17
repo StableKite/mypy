@@ -1,0 +1,105 @@
+-- Changes to the instance contract must invalidate callers of the same FuncDef.
+
+[case testMethodShadowFineGrainedAddRemoveRestore]
+from provider import Dispatch
+Dispatch.call(Dispatch(), value=1)
+Dispatch().call(value=1)
+[file provider.py]
+from typing import Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+[file provider.py.2]
+from typing import Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+[file provider.py.3]
+from typing import Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+[file provider.py.4]
+from typing import Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+[out]
+==
+main:3: error: Unexpected keyword argument "value"
+==
+==
+main:3: error: Unexpected keyword argument "value"
+
+[case testMethodShadowFineGrainedVarianceAddRemoveRestore]
+# flags: --python-version 3.12
+from provider import Source
+def use(strings: Source[str]) -> None:
+    objects: Source[object] = strings
+[file provider.py]
+from typing import Callable
+class Source[T]:
+    def __init__(self, value: T) -> None:
+        self._value = value
+    def initial(self) -> T: return self._value
+    def call(self) -> T: return self._value
+[file provider.py.2]
+from typing import Callable
+class Source[T]:
+    def __init__(self, value: T) -> None:
+        self._value = value
+        self.call: Callable[[], T] = self.initial
+    def initial(self) -> T: return self._value
+    def call(self) -> T: return self._value
+[file provider.py.3]
+from typing import Callable
+class Source[T]:
+    def __init__(self, value: T) -> None:
+        self._value = value
+    def initial(self) -> T: return self._value
+    def call(self) -> T: return self._value
+[file provider.py.4]
+from typing import Callable
+class Source[T]:
+    def __init__(self, value: T) -> None:
+        self._value = value
+        self.call: Callable[[], T] = self.initial
+    def initial(self) -> T: return self._value
+    def call(self) -> T: return self._value
+[out]
+==
+main:4: error: Incompatible types in assignment (expression has type "Source[str]", variable has type "Source[object]")
+==
+==
+main:4: error: Incompatible types in assignment (expression has type "Source[str]", variable has type "Source[object]")
+
+[case testMethodShadowFineGrainedCallableAliasChange]
+from provider import Dispatch
+def use(instance: Dispatch) -> int:
+    return instance.call(value=1)
+[file callbacks.py]
+from typing import Protocol
+class Contract(Protocol):
+    def __call__(self, value: int) -> int: ...
+[file provider.py]
+from callbacks import Contract
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Contract = self.initial
+[file callbacks.py.2]
+from typing import Callable
+Contract = Callable[[int], int]
+[file callbacks.py.3]
+from typing import Protocol
+class Contract(Protocol):
+    def __call__(self, value: int) -> int: ...
+[out]
+==
+main:3: error: Unexpected keyword argument "value"
+==

@@ -121,6 +121,13 @@ from mypy.messages import (
     make_inferred_type_note,
     pretty_seq,
 )
+from mypy.methodshadow import (
+    concrete_callable,
+    ordinary_method,
+    own_contracts,
+    raw_contract,
+    writable_method,
+)
 from mypy.mro import MroError, calculate_mro
 from mypy.nodes import (
     ARG_NAMED,
@@ -2824,6 +2831,7 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
                     self.check_multiple_inheritance(typ)
                 self.check_metaclass_compatibility(typ)
                 self.check_final_deletable(typ)
+                self.check_inherited_method_shadow_contracts(defn)
                 if typ.typeddict_type:
                     self.check_typeddict_inheritance(defn)
 
@@ -3383,6 +3391,8 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
         Handle all kinds of assignment statements (simple, indexed, multiple).
         """
 
+        self.check_method_shadow_annotation(s)
+
         # Avoid type checking type aliases in stubs to avoid false
         # positives about modern type syntax available in stubs such
         # as X | Y.
@@ -3429,6 +3439,115 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
 
         if s.unanalyzed_type and not self.in_checked_function():
             self.msg.annotation_in_unchecked_function(context=s)
+
+    def check_inherited_method_shadow_contracts(self, defn: ClassDef) -> None:
+        """Inherited instance writes require invariant ordinary method overrides.
+
+        Keep this independent of the optional mutable-override diagnostic and of
+        whether the class which declares the contract also declares the method.
+        """
+        instance = fill_typevars(defn.info)
+        if not isinstance(instance, Instance):
+            return
+        for base in defn.info.mro[1:]:
+            names = {key.partition(".")[2] for key in base.live_method_shadow_types()}
+            for name in sorted(names):
+                method = ordinary_method(defn.info, name)
+                compatible = method is not None and writable_method(defn.info, name)
+                if compatible:
+                    assert method is not None
+                    mx = MemberContext(
+                        is_lvalue=False,
+                        is_super=False,
+                        is_operator=False,
+                        original_type=instance,
+                        context=defn,
+                        chk=self,
+                        preserve_method=True,
+                    )
+                    original = analyze_instance_member_access(name, instance, mx, method.info)
+                    for declared in own_contracts(base, name):
+                        annotation = mypy.checkmember.expand_method_contract(
+                            instance, base, declared, instance
+                        )
+                        if not (
+                            is_subtype(original, annotation)
+                            and is_subtype(original, annotation, ignore_pos_arg_names=True)
+                            and is_subtype(annotation, original, ignore_pos_arg_names=True)
+                        ):
+                            compatible = False
+                if not compatible:
+                    self.fail(
+                        f'Override of "{name}" must preserve the inherited writable '
+                        f'instance callable contract from "{base.name}"',
+                        defn,
+                        code=codes.OVERRIDE,
+                    )
+
+    def check_method_shadow_annotation(self, statement: AssignmentStmt) -> None:
+        if statement.type is None or statement.is_final_def or len(statement.lvalues) != 1:
+            return
+        lvalue = statement.lvalues[0]
+        if (
+            not isinstance(lvalue, MemberExpr)
+            or not isinstance(lvalue.expr, NameExpr)
+            or not isinstance(lvalue.expr.node, Var)
+            or not lvalue.expr.node.is_self
+        ):
+            return
+        owner = self.scope.current_function()
+        if not isinstance(owner, FuncDef):
+            return
+        info = self.scope.enclosing_class(owner)
+        if info is None or f"{owner.name}.{lvalue.name}" not in info.live_method_shadow_types():
+            return
+        # This declaration applies to every instance of the lexical class.
+        # A narrowed/rebound self must not substitute a Child function as the
+        # fallback for a Base-wide annotation (nor specialize a generic class).
+        self_type = fill_typevars(info)
+        instance = get_proper_type(self_type)
+        if not isinstance(instance, Instance) or not writable_method(instance.type, lvalue.name):
+            return
+        mx = MemberContext(
+            is_lvalue=False,
+            is_super=False,
+            is_operator=False,
+            original_type=self_type,
+            context=lvalue,
+            chk=self,
+            preserve_method=True,
+        )
+        original = analyze_instance_member_access(lvalue.name, instance, mx, None)
+        annotation = statement.type
+        # A positional-only Callable can omit the keyword names of the real
+        # class function. Its parameter/result shape still must match, and
+        # the fallback bound class function must implement the annotation.
+        compatible = (
+            not mypy.checkexpr.has_any_type(annotation)
+            and is_subtype(original, annotation)
+            and is_subtype(original, annotation, ignore_pos_arg_names=True)
+            and is_subtype(annotation, original, ignore_pos_arg_names=True)
+        )
+        for base in instance.type.mro:
+            for declared in own_contracts(base, lvalue.name):
+                view = mypy.checkmember.expand_method_contract(instance, base, declared, self_type)
+                if not is_subtype(annotation, view) or not is_subtype(view, annotation):
+                    compatible = False
+        variables = {variable.id for variable in mypy.typeops.get_all_type_vars(annotation)}
+        if instance.type.defn.type_args is None and any(
+            isinstance(variable, TypeVarType)
+            and variable.id in variables
+            and variable.variance in (COVARIANT, CONTRAVARIANT)
+            for variable in instance.type.defn.type_vars
+        ):
+            compatible = False
+        if not compatible:
+            self.msg.cant_assign_to_method(lvalue)
+            self.fail(
+                "Explicit instance callable contract must match the bound method and inherited writable contract",
+                lvalue,
+                code=codes.ASSIGNMENT,
+            )
 
     def check_type_alias_rvalue(self, s: AssignmentStmt) -> None:
         with self.msg.filter_errors():
@@ -3895,6 +4014,7 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
             context=context,
             chk=self,
             suppress_errors=True,
+            preserve_method=True,
         )
         # TODO: we should not filter "cannot determine type" errors here.
         with self.msg.filter_errors(filter_deprecated=True):
@@ -5141,6 +5261,31 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
         # by this assignment. Technically, this is not safe, but in practice this is
         # what a user expects.
         rvalue_type, _ = self.check_simple_assignment(set_lvalue_type, rvalue, context)
+        if (
+            isinstance(instance_type, Instance)
+            and writable_method(instance_type.type, lvalue.name)
+            and not (isinstance(rvalue, TempNode) and rvalue.no_rhs)
+        ):
+            value = get_proper_type(rvalue_type)
+            bound = isinstance(value, FunctionLike) and value.bound() and concrete_callable(value)
+            if bound and isinstance(value, FunctionLike):
+                for item in value.items:
+                    definition = item.definition
+                    if isinstance(definition, Decorator):
+                        definition = definition.func
+                    if (
+                        not isinstance(definition, FuncDef)
+                        or definition.is_class
+                        or definition.is_static
+                    ):
+                        bound = False
+            if not bound:
+                self.msg.cant_assign_to_method(lvalue)
+            # Aliases can replace the same instance entry again. Do not retain
+            # extra keyword promises or a narrower result from this particular
+            # bound RHS as though they were part of the writable declaration.
+            self.binder.assign_type(lvalue, set_lvalue_type, set_lvalue_type)
+            return rvalue_type, set_lvalue_type, False
         rvalue_type = rvalue_type if is_subtype(rvalue_type, get_lvalue_type) else get_lvalue_type
         return rvalue_type, set_lvalue_type, is_subtype(get_lvalue_type, set_lvalue_type)
 
@@ -5839,6 +5984,10 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
         else:
             s.expr.accept(self.expr_checker)
             for elt in flatten(s.expr):
+                if isinstance(elt, MemberExpr):
+                    instance = get_proper_type(self.expr_checker.accept(elt.expr))
+                    if isinstance(instance, Instance) and raw_contract(instance.type, elt.name):
+                        self.msg.cant_assign_to_method(elt)
                 if isinstance(elt, NameExpr):
                     self.binder.assign_type(
                         elt, DeletedType(source=elt.name), get_declaration(elt)

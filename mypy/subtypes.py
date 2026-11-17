@@ -16,6 +16,7 @@ from mypy.expandtype import (
     freshen_function_type_vars,
 )
 from mypy.maptype import map_instance_to_supertype
+from mypy.methodshadow import raw_contract, writable_method
 
 # Circular import; done in the function instead.
 # import mypy.solve
@@ -1327,6 +1328,11 @@ def is_protocol_implementation(
             if member in members_not_to_check:
                 continue
             ignore_names = member != "__call__"  # __call__ can be passed kwargs
+            if not class_obj and raw_contract(left.type, member) is not None:
+                # A declared instance Callable may intentionally omit keyword
+                # promises made by the class function. Preserve those promises
+                # when matching a protocol rather than erasing argument names.
+                ignore_names = False
             # The third argument below indicates to what self type is bound.
             # We always bind self to the subtype. (Similarly to nominal types).
             supertype = find_member(member, right, original_left)
@@ -1390,7 +1396,13 @@ def is_protocol_implementation(
 
     if not proper_subtype:
         # Nominal check currently ignores arg names, but __call__ is special for protocols
-        ignore_names = right.type.protocol_members != ["__call__"]
+        ignore_names = right.type.protocol_members != ["__call__"] and not (
+            not class_obj
+            and any(
+                raw_contract(left.type, member) is not None
+                for member in right.type.protocol_members
+            )
+        )
     else:
         ignore_names = False
     subtype_kind = SubtypeVisitor.build_subtype_kind(
@@ -1597,6 +1609,8 @@ def get_member_flags(name: str, itype: Instance, class_obj: bool = False) -> set
                 return flags
             else:
                 return {IS_VAR}
+        if not class_obj and writable_method(info, name):
+            return {IS_VAR, IS_SETTABLE}
         return set()  # Just a regular method
     node = info.get(name)
     if not node:
@@ -2474,6 +2488,12 @@ def infer_variance(info: TypeInfo, i: int) -> bool:
             # TODO: handle settable properties with setter type different from getter.
             typ = find_member(member, self_type, self_type)
             if typ:
+                if raw_contract(info, member) is not None and any(
+                    variable.id == tvar.id for variable in mypy.typeops.get_all_type_vars(typ)
+                ):
+                    # Replacing a callable can change both its argument domain
+                    # and its result. Either occurrence makes the field invariant.
+                    co = contra = False
                 # It's okay for a method in a generic class with a contravariant type
                 # variable to return a generic instance of the class, if it doesn't involve
                 # variance (i.e. values of type variables are propagated). Our normal rules
@@ -2482,7 +2502,8 @@ def infer_variance(info: TypeInfo, i: int) -> bool:
                 # This could probably be more lenient (e.g. allow self type be nested, don't
                 # require all type arguments to be identical to self_type), but this will
                 # hopefully cover the vast majority of such cases, including Self.
-                typ = erase_return_self_types(typ, self_type)
+                if raw_contract(info, member) is None:
+                    typ = erase_return_self_types(typ, self_type)
 
                 typ2 = expand_type(typ, {tvar.id: object_type})
                 if not is_subtype(typ, typ2):

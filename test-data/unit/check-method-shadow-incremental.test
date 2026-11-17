@@ -1,0 +1,76 @@
+-- Both cache encodings must preserve the distinct instance and class views.
+
+[case testMethodShadowIncrementalBinary]
+from provider import Dispatch
+Dispatch.call(Dispatch(), value=1)
+Dispatch().call(value=1)
+[file provider.py]
+from typing import Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+[rechecked]
+[stale]
+[out1]
+main:3: error: Unexpected keyword argument "value"
+[out2]
+main:3: error: Unexpected keyword argument "value"
+
+[case testMethodShadowIncrementalJson]
+# flags: --no-fixed-format-cache
+from provider import Dispatch
+Dispatch.call(Dispatch(), value=1)
+Dispatch().call(value=1)
+[file provider.py]
+from typing import Callable
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callable[[int], int] = self.initial
+[rechecked]
+[stale]
+[out1]
+main:4: error: Unexpected keyword argument "value"
+[out2]
+main:4: error: Unexpected keyword argument "value"
+
+[case testMethodShadowIncrementalCallbackFixup]
+from provider import Dispatch
+result: int = Dispatch().call(value=1)
+result = Dispatch.call(Dispatch(), value=1)
+[file callbacks.py]
+from typing import Protocol
+class Callback(Protocol):
+    def __call__(self, value: int) -> int: ...
+[file provider.py]
+from callbacks import Callback
+class Dispatch:
+    def initial(self, value: int) -> int: return value
+    def call(self, value: int) -> int: return value
+    def __init__(self) -> None:
+        self.call: Callback = self.initial
+[rechecked]
+[stale]
+
+[case testMethodShadowIncrementalGenericVariance]
+# flags: --python-version 3.12
+from provider import Source
+def use(strings: Source[str]) -> None:
+    objects: Source[object] = strings
+[file provider.py]
+from typing import Callable
+class Source[T]:
+    def __init__(self, value: T) -> None:
+        self._value = value
+        self.call: Callable[[], T] = self.initial
+    def initial(self) -> T: return self._value
+    def call(self) -> T: return self._value
+[rechecked]
+[stale]
+[out1]
+main:4: error: Incompatible types in assignment (expression has type "Source[str]", variable has type "Source[object]")
+[out2]
+main:4: error: Incompatible types in assignment (expression has type "Source[str]", variable has type "Source[object]")
