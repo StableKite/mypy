@@ -3505,7 +3505,7 @@ class TypeChecker(NodeVisitor[None], TypeCheckerSharedApi, SplittingVisitor):
         # A narrowed/rebound self must not substitute a Child function as the
         # fallback for a Base-wide annotation (nor specialize a generic class).
         self_type = fill_typevars(info)
-        instance = get_proper_type(self_type)
+        instance = self_type
         if not isinstance(instance, Instance) or not writable_method(instance.type, lvalue.name):
             return
         mx = MemberContext(
