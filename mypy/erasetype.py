@@ -135,7 +135,10 @@ class EraseTypeVisitor(TypeVisitor[ProperType]):
 
     def visit_type_type(self, t: TypeType) -> ProperType:
         return TypeType.make_normalized(
-            t.item.accept(self), line=t.line, is_type_form=t.is_type_form
+            t.item.accept(self),
+            line=t.line,
+            is_type_form=t.is_type_form,
+            metaclass_constraint=t.metaclass_constraint,
         )
 
     def visit_type_alias_type(self, t: TypeAliasType) -> ProperType:

@@ -1497,7 +1497,14 @@ class TypeAnalyser(SyntheticTypeVisitor[Type], TypeAnalyzerPluginInterface):
 
     def visit_type_type(self, t: TypeType) -> Type:
         return TypeType.make_normalized(
-            self.anal_type(t.item), line=t.line, is_type_form=t.is_type_form
+            self.anal_type(t.item),
+            line=t.line,
+            is_type_form=t.is_type_form,
+            metaclass_constraint=(
+                self.anal_type(t.metaclass_constraint)
+                if t.metaclass_constraint is not None
+                else None
+            ),
         )
 
     def visit_placeholder_type(self, t: PlaceholderType) -> Type:
@@ -2860,6 +2867,8 @@ class FindTypeVarVisitor(SyntheticTypeVisitor[None]):
 
     def visit_type_type(self, t: TypeType) -> None:
         t.item.accept(self)
+        if t.metaclass_constraint is not None:
+            t.metaclass_constraint.accept(self)
 
     def visit_ellipsis_type(self, t: EllipsisType) -> None:
         pass

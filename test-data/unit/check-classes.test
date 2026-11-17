@@ -9867,13 +9867,13 @@ class M(TagMeta):
             return super(M, value).tag()  # E: Returning Any from function declared to return "str"                                          # E: Argument 2 for "super" not an instance of argument 1
         return inner(other)
     def rebound(cls: Type[T], other: Type[T]) -> str:
-        cls = other
+        cls = other  # E: Incompatible types in assignment (expression has type "type[T]", variable has type "type[T] (metaclass M)")
         return super().tag()  # E: Returning Any from function declared to return "str"                                  # E: Argument 2 for "super" not an instance of argument 1
     def unpacked(cls: Type[T], other: Type[T]) -> str:
-        cls, other = other, cls
+        cls, other = other, cls  # E: Incompatible types in assignment (expression has type "type[T]", variable has type "type[T] (metaclass M)")
         return super().tag()  # E: Returning Any from function declared to return "str"                                  # E: Argument 2 for "super" not an instance of argument 1
     def walrus(cls: Type[T], other: Type[T]) -> str:
-        (cls := other)
+        (cls := other)  # E: Incompatible types in assignment (expression has type "type[T]", variable has type "type[T] (metaclass M)")
         return super().tag()  # E: Returning Any from function declared to return "str"                                  # E: Argument 2 for "super" not an instance of argument 1
 
 class Good(metaclass=M):

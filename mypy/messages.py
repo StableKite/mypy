@@ -3031,6 +3031,11 @@ def format_type_distinctly(*types: Type, options: Options, bare: bool = False) -
         ]
         if len(set(strs)) == len(strs):
             break
+    if len(set(strs)) != len(strs):
+        for i, original in enumerate(types):
+            proper = get_proper_type(original)
+            if isinstance(proper, TypeType) and proper.metaclass_constraint is not None:
+                strs[i] += f" (metaclass {format_single(proper.metaclass_constraint)})"
     if bare:
         return tuple(strs)
     else:

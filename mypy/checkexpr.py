@@ -2880,6 +2880,18 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
         elif self.has_abstract_type_part(caller_type, callee_type):
             self.msg.concrete_only_call(callee_type, context)
         elif not is_subtype(caller_type, callee_type, options=self.chk.options):
+            if (
+                isinstance(callee_type, TypeType)
+                and callee_type.metaclass_constraint is not None
+                and not is_subtype(
+                    caller_type, callee_type.metaclass_constraint, options=self.chk.options
+                )
+            ):
+                # The represented instance type may match exactly while the
+                # independent metaclass requirement fails. Show that domain.
+                display_types = callee.arg_types.copy()
+                display_types[m - 1] = callee_type.metaclass_constraint
+                callee = callee.copy_modified(arg_types=display_types)
             error = self.msg.incompatible_argument(
                 n,
                 m,

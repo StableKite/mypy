@@ -1208,10 +1208,18 @@ class TypeMeetVisitor(TypeVisitor[ProperType]):
 
     def visit_type_type(self, t: TypeType) -> ProperType:
         if isinstance(self.s, TypeType):
+            metaclass_constraint = t.metaclass_constraint or self.s.metaclass_constraint
+            if t.metaclass_constraint is not None and self.s.metaclass_constraint is not None:
+                metaclass_constraint = self.meet(
+                    t.metaclass_constraint, self.s.metaclass_constraint
+                )
             typ = self.meet(t.item, self.s.item)
             if not isinstance(typ, NoneType):
                 typ = TypeType.make_normalized(
-                    typ, line=t.line, is_type_form=self.s.is_type_form and t.is_type_form
+                    typ,
+                    line=t.line,
+                    is_type_form=self.s.is_type_form and t.is_type_form,
+                    metaclass_constraint=metaclass_constraint,
                 )
             return typ
         elif isinstance(self.s, Instance) and self.s.type.fullname == "builtins.type":

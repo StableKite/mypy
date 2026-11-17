@@ -166,6 +166,8 @@ class TypeIndirectionVisitor(TypeVisitor[None]):
 
     def visit_type_type(self, t: types.TypeType) -> None:
         self._visit(t.item)
+        if t.metaclass_constraint is not None:
+            self._visit(t.metaclass_constraint)
 
     def visit_type_alias_type(self, t: types.TypeAliasType) -> None:
         # Type alias is named, record its definition and continue digging into

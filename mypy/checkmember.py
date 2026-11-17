@@ -463,6 +463,9 @@ def analyze_type_type_member_access(
     # Similar to analyze_type_callable_attribute_access.
     item = None
     fallback = mx.named_type("builtins.type")
+    constraint = get_proper_type(typ.metaclass_constraint)
+    if isinstance(constraint, Instance):
+        fallback = constraint
     if isinstance(typ.item, Instance):
         item = typ.item
     elif isinstance(typ.item, AnyType):
@@ -475,7 +478,12 @@ def analyze_type_type_member_access(
         elif isinstance(upper_bound, UnionType):
             return _analyze_member_access(
                 name,
-                TypeType.make_normalized(upper_bound, line=typ.line, column=typ.column),
+                TypeType.make_normalized(
+                    upper_bound,
+                    line=typ.line,
+                    column=typ.column,
+                    metaclass_constraint=typ.metaclass_constraint,
+                ),
                 mx,
                 override_info,
             )
@@ -495,7 +503,11 @@ def analyze_type_type_member_access(
     ignore_messages = False
 
     if item is not None:
-        fallback = item.type.metaclass_type or fallback
+        declared_meta = item.type.metaclass_type
+        if declared_meta is not None and (
+            constraint is None or is_subtype(declared_meta, constraint)
+        ):
+            fallback = declared_meta
         if (
             mx.is_super
             and override_info is not None

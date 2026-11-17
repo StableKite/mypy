@@ -492,6 +492,8 @@ class TypeReplaceVisitor(SyntheticTypeVisitor[None]):
 
     def visit_type_type(self, typ: TypeType) -> None:
         typ.item.accept(self)
+        if typ.metaclass_constraint is not None:
+            typ.metaclass_constraint.accept(self)
 
     def visit_type_var(self, typ: TypeVarType) -> None:
         typ.upper_bound.accept(self)

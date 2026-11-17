@@ -1074,6 +1074,32 @@ class SemanticAnalyzer(
                         if info.self_type is not None:
                             result.variables = (info.self_type,) + result.variables
                 defn.type = result
+                if (
+                    self.type is not None
+                    and self.is_class_scope()
+                    and self.type.is_metaclass()
+                    and not defn.is_static
+                    and not defn.is_class
+                    and defn.name != "__new__"
+                    and isinstance(result, CallableType)
+                    and result.arg_types
+                    and result.arg_kinds[0] == ARG_POS
+                ):
+                    receiver = get_proper_type(result.arg_types[0])
+                    if isinstance(receiver, TypeType) and isinstance(receiver.item, TypeVarType):
+                        # The represented instance type and the metaclass of
+                        # the class object are independent receiver constraints.
+                        bound = get_proper_type(receiver.item.upper_bound)
+                        bound_meta = (
+                            bound.type.metaclass_type if isinstance(bound, Instance) else None
+                        )
+                        if bound_meta is None or self.type not in bound_meta.type.mro:
+                            leading = TypeType.make_normalized(
+                                receiver.item, metaclass_constraint=fill_typevars(self.type)
+                            )
+                            defn.type = result.copy_modified(
+                                arg_types=[leading, *result.arg_types[1:]]
+                            )
                 self.add_type_alias_deps(analyzer.aliases_used)
                 self.check_function_signature(defn)
                 if isinstance(defn, FuncDef):

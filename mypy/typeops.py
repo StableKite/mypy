@@ -674,7 +674,11 @@ def erase_to_bound(t: Type) -> Type:
         return t.upper_bound
     if isinstance(t, TypeType):
         if isinstance(t.item, TypeVarType):
-            return TypeType.make_normalized(t.item.upper_bound, is_type_form=t.is_type_form)
+            return TypeType.make_normalized(
+                t.item.upper_bound,
+                is_type_form=t.is_type_form,
+                metaclass_constraint=t.metaclass_constraint,
+            )
     return t
 
 

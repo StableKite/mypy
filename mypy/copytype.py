@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, cast
-
 from mypy.types import (
     AnyType,
     CallableType,
@@ -123,8 +121,12 @@ class TypeShallowCopier(TypeVisitor[ProperType]):
         return self.copy_common(t, Overloaded(items=t.items))
 
     def visit_type_type(self, t: TypeType) -> ProperType:
-        # Use cast since the type annotations in TypeType are imprecise.
-        return self.copy_common(t, TypeType(cast(Any, t.item), is_type_form=t.is_type_form))
+        return self.copy_common(
+            t,
+            TypeType.make_normalized(
+                t.item, is_type_form=t.is_type_form, metaclass_constraint=t.metaclass_constraint
+            ),
+        )
 
     def visit_type_alias_type(self, t: TypeAliasType) -> ProperType:
         assert False, "only ProperTypes supported"

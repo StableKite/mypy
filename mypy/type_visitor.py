@@ -336,7 +336,13 @@ class TypeTranslator(TypeVisitor[Type]):
 
     def visit_type_type(self, t: TypeType, /) -> Type:
         return TypeType.make_normalized(
-            t.item.accept(self), line=t.line, column=t.column, is_type_form=t.is_type_form
+            t.item.accept(self),
+            line=t.line,
+            column=t.column,
+            is_type_form=t.is_type_form,
+            metaclass_constraint=(
+                t.metaclass_constraint.accept(self) if t.metaclass_constraint is not None else None
+            ),
         )
 
     @abstractmethod
@@ -447,7 +453,9 @@ class TypeQuery(SyntheticTypeVisitor[T]):
         return self.query_types(t.items)
 
     def visit_type_type(self, t: TypeType, /) -> T:
-        return t.item.accept(self)
+        return self.query_types(
+            [t.item, t.metaclass_constraint] if t.metaclass_constraint is not None else [t.item]
+        )
 
     def visit_ellipsis_type(self, t: EllipsisType, /) -> T:
         return self.strategy([])
@@ -587,7 +595,9 @@ class BoolTypeQuery(SyntheticTypeVisitor[bool]):
         return self.query_types(t.items)  # type: ignore[arg-type]
 
     def visit_type_type(self, t: TypeType, /) -> bool:
-        return t.item.accept(self)
+        return self.query_types(
+            [t.item, t.metaclass_constraint] if t.metaclass_constraint is not None else [t.item]
+        )
 
     def visit_ellipsis_type(self, t: EllipsisType, /) -> bool:
         return self.default

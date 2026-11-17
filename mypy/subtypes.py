@@ -317,6 +317,10 @@ def _is_subtype(
         # ErasedType as we do for non-proper subtyping.
         return True
 
+    if isinstance(right, TypeType) and right.metaclass_constraint is not None:
+        if not _is_subtype(left, right.metaclass_constraint, subtype_context, proper_subtype):
+            return False
+
     # Cases specific w.r.t. right type are easier to handle before entering the SubtypeVisitor.
     # Currently, these include Union types and TypeVarType with values.
     if isinstance(right, UnionType) and not isinstance(left, UnionType):
@@ -1232,6 +1236,10 @@ class SubtypeVisitor(TypeVisitor[bool]):
                 return self._is_subtype(left.item, right.ret_type)
 
             if isinstance(right, Instance):
+                if left.metaclass_constraint is not None and self._is_subtype(
+                    left.metaclass_constraint, right
+                ):
+                    return True
                 if right.type.fullname in ["builtins.object", "builtins.type"]:
                     # TODO: Strictly speaking, the type builtins.type is considered equivalent to
                     #       Type[Any]. However, this would break the is_proper_subtype check in

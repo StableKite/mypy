@@ -1,0 +1,79 @@
+[case testMetaclassReceiverDirectAliasAndParamSpec]
+# flags: --strict
+from typing import Callable, Type, TypeVar, ParamSpec
+T = TypeVar('T')
+P = ParamSpec('P')
+R = TypeVar('R')
+class TagMeta(type):
+    def label(cls) -> str:
+        return cls.__name__
+class Meta(TagMeta):
+    def label(cls: Type[T]) -> str:
+        return super().label()
+class Right(metaclass=Meta):
+    pass
+class Child(Right):
+    pass
+def identity(f: Callable[P, R]) -> Callable[P, R]:
+    return f
+alias = Meta.label
+typed: Callable[[Type[Right]], str] = Meta.label
+bound: Callable[[], str] = Right.label
+a: str = Meta.label(Right)
+b: str = Meta.label(Child)
+c: str = alias(Right)
+d: str = typed(Right)
+e: str = bound()
+f: str = identity(Meta.label)(Right)
+[builtins fixtures/type.pyi]
+
+[case testMetaclassReceiverRejectsWrongUnboundDomain]
+# flags: --strict
+from typing import Callable, Type, TypeVar, ParamSpec
+T = TypeVar('T')
+P = ParamSpec('P')
+R = TypeVar('R')
+class TagMeta(type):
+    def label(cls) -> str:
+        return cls.__name__
+class Meta(TagMeta):
+    def label(cls: Type[T]) -> str:
+        return super().label()
+class Wrong:
+    pass
+def identity(f: Callable[P, R]) -> Callable[P, R]:
+    return f
+alias = Meta.label
+Meta.label(Wrong)  # E: Argument 1 to "label" of "Meta" has incompatible type "type[Wrong]"; expected "Meta"
+alias(Wrong)  # E: Argument 1 has incompatible type "type[Wrong]"; expected "Meta"
+Meta.label(cls=Wrong)  # E: Argument "cls" to "label" of "Meta" has incompatible type "type[Wrong]"; expected "Meta"
+identity(Meta.label)(Wrong)  # E: Argument 1 has incompatible type "type[Wrong]"; expected "Meta"
+bad: Callable[[Type[Wrong]], str] = Meta.label  # E: Incompatible types in assignment (expression has type "Callable[[type[T]], str]", variable has type "Callable[[type[Wrong]], str]")
+[builtins fixtures/type.pyi]
+
+[case testMetaclassReceiverDomainCachedIncremental]
+# flags: --strict
+import caller
+[file provider.py]
+from typing import Type, TypeVar
+T = TypeVar('T')
+class TagMeta(type):
+    def label(cls) -> str:
+        return cls.__name__
+class Meta(TagMeta):
+    def label(cls: Type[T]) -> str:
+        return super().label()
+class Right(metaclass=Meta):
+    pass
+class Wrong:
+    pass
+alias = Meta.label
+[file caller.py]
+from provider import Right, alias
+result: str = alias(Right)
+[file caller.py.2]
+from provider import Wrong, alias
+result: str = alias(Wrong)
+[builtins fixtures/type.pyi]
+[out2]
+tmp/caller.py:2: error: Argument 1 has incompatible type "type[Wrong]"; expected "Meta"

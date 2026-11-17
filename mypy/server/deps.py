@@ -1046,6 +1046,8 @@ class TypeTriggersVisitor(TypeVisitor[list[str]]):
 
     def visit_type_type(self, typ: TypeType) -> list[str]:
         triggers = self.get_type_triggers(typ.item)
+        if typ.metaclass_constraint is not None:
+            triggers.extend(self.get_type_triggers(typ.metaclass_constraint))
         if not self.use_logical_deps:
             old_triggers = triggers.copy()
             for trigger in old_triggers:

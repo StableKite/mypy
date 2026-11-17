@@ -3650,7 +3650,7 @@ class TypeType(ProperType):
     assumption).
     """
 
-    __slots__ = ("item", "is_type_form")
+    __slots__ = ("item", "is_type_form", "metaclass_constraint")
 
     # This can't be everything, but it can be a class reference,
     # a generic class instance, a union, Any, a type variable...
@@ -3667,6 +3667,7 @@ class TypeType(ProperType):
         line: int = -1,
         column: int = -1,
         is_type_form: bool = False,
+        metaclass_constraint: Type | None = None,
     ) -> None:
         """To ensure Type[Union[A, B]] is always represented as Union[Type[A], Type[B]], item of
         type UnionType must be handled through make_normalized static method.
@@ -3674,10 +3675,16 @@ class TypeType(ProperType):
         super().__init__(line, column)
         self.item = item
         self.is_type_form = is_type_form
+        self.metaclass_constraint = metaclass_constraint
 
     @staticmethod
     def make_normalized(
-        item: Type, *, line: int = -1, column: int = -1, is_type_form: bool = False
+        item: Type,
+        *,
+        line: int = -1,
+        column: int = -1,
+        is_type_form: bool = False,
+        metaclass_constraint: Type | None = None,
     ) -> ProperType:
         item = get_proper_type(item)
         if is_type_form:
@@ -3686,46 +3693,71 @@ class TypeType(ProperType):
         else:
             if isinstance(item, UnionType):
                 return UnionType.make_union(
-                    [TypeType.make_normalized(union_item) for union_item in item.items],
+                    [
+                        TypeType.make_normalized(
+                            union_item, metaclass_constraint=metaclass_constraint
+                        )
+                        for union_item in item.items
+                    ],
                     line=line,
                     column=column,
                 )
-        return TypeType(item, line=line, column=column, is_type_form=is_type_form)  # type: ignore[arg-type]
+        result = TypeType(item, line=line, column=column, is_type_form=is_type_form)  # type: ignore[arg-type]
+        result.metaclass_constraint = metaclass_constraint
+        return result
 
     def accept(self, visitor: TypeVisitor[T]) -> T:
         return visitor.visit_type_type(self)
 
     def __hash__(self) -> int:
-        return hash(self.item)
+        return hash((self.item, self.metaclass_constraint))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TypeType):
             return NotImplemented
-        return self.item == other.item and self.is_type_form == other.is_type_form
+        return (
+            self.item == other.item
+            and self.is_type_form == other.is_type_form
+            and self.metaclass_constraint == other.metaclass_constraint
+        )
 
     def serialize(self) -> JsonDict:
         return {
             ".class": "TypeType",
             "item": self.item.serialize(),
             "is_type_form": self.is_type_form,
+            "metaclass_constraint": (
+                self.metaclass_constraint.serialize()
+                if self.metaclass_constraint is not None
+                else None
+            ),
         }
 
     @classmethod
     def deserialize(cls, data: JsonDict) -> Type:
         assert data[".class"] == "TypeType"
         return TypeType.make_normalized(
-            deserialize_type(data["item"]), is_type_form=data["is_type_form"]
+            deserialize_type(data["item"]),
+            is_type_form=data["is_type_form"],
+            metaclass_constraint=(
+                deserialize_type(data["metaclass_constraint"])
+                if data.get("metaclass_constraint") is not None
+                else None
+            ),
         )
 
     def write(self, data: WriteBuffer) -> None:
         write_tag(data, TYPE_TYPE)
         self.item.write(data)
         write_bool(data, self.is_type_form)
+        write_type_opt(data, self.metaclass_constraint)
         write_tag(data, END_TAG)
 
     @classmethod
     def read(cls, data: ReadBuffer) -> Type:
-        ret = TypeType.make_normalized(read_type(data), is_type_form=read_bool(data))
+        ret = TypeType.make_normalized(
+            read_type(data), is_type_form=read_bool(data), metaclass_constraint=read_type_opt(data)
+        )
         assert read_tag(data) == END_TAG
         return ret
 

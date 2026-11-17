@@ -34,6 +34,7 @@ from mypy.test.typefixture import InterfaceTypeFixture, TypeFixture
 from mypy.typeops import false_only, make_simplified_union, true_only
 from mypy.types import (
     LITERAL_TYPE,
+    TYPE_TYPE,
     AnyType,
     CallableType,
     Instance,
@@ -70,6 +71,30 @@ class TypesSuite(Suite):
 
     def test_any(self) -> None:
         assert_equal(str(AnyType(TypeOfAny.special_form)), "Any")
+
+    def test_metaclass_receiver_json_roundtrip(self) -> None:
+        receiver = TypeType.make_normalized(self.fx.a, metaclass_constraint=self.fx.type_type)
+        roundtrip = TypeType.deserialize(receiver.serialize())
+        assert isinstance(roundtrip, TypeType)
+        assert isinstance(roundtrip.metaclass_constraint, Instance)
+        self.assertEqual(roundtrip.metaclass_constraint.type_ref, "builtins.type")
+
+    def test_metaclass_receiver_binary_roundtrip(self) -> None:
+        receiver = TypeType.make_normalized(self.fx.a, metaclass_constraint=self.fx.type_type)
+        data = WriteBuffer()
+        receiver.write(data)
+        buffer = ReadBuffer(data.getvalue())
+        assert read_tag(buffer) == TYPE_TYPE
+        roundtrip = TypeType.read(buffer)
+        assert isinstance(roundtrip, TypeType)
+        assert isinstance(roundtrip.metaclass_constraint, Instance)
+        self.assertEqual(roundtrip.metaclass_constraint.type_ref, "builtins.type")
+
+    def test_metaclass_receiver_distinct_from_unconstrained_type(self) -> None:
+        receiver = TypeType.make_normalized(self.fx.a, metaclass_constraint=self.fx.type_type)
+        ordinary = TypeType.make_normalized(self.fx.a)
+        self.assertNotEqual(receiver, ordinary)
+        self.assertEqual(len({receiver, ordinary}), 2)
 
     def test_sentinel_literal_json_roundtrip(self) -> None:
         literal = LiteralType(SentinelValue("__main__.MISSING", "MISSING"), self.fx.a)

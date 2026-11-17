@@ -369,6 +369,8 @@ class TypeFixer(TypeVisitor[None]):
 
     def visit_type_type(self, t: TypeType) -> None:
         t.item.accept(self)
+        if t.metaclass_constraint is not None:
+            t.metaclass_constraint.accept(self)
 
 
 def lookup_fully_qualified_typeinfo(

@@ -599,7 +599,13 @@ class ExpandTypeVisitor(TrivialSyntheticTypeTranslator):
         # union of instances or Any).  Sadly we can't report errors
         # here yet.
         item = t.item.accept(self)
-        return TypeType.make_normalized(item, is_type_form=t.is_type_form)
+        return TypeType.make_normalized(
+            item,
+            is_type_form=t.is_type_form,
+            metaclass_constraint=(
+                t.metaclass_constraint.accept(self) if t.metaclass_constraint is not None else None
+            ),
+        )
 
     def visit_type_alias_type(self, t: TypeAliasType) -> Type:
         # Target of the type alias cannot contain type variables (not bound by the type
