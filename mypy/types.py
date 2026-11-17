@@ -3660,6 +3660,11 @@ class TypeType(ProperType):
     # If False then this TypeType represents a Type[C].
     is_type_form: bool
 
+    # A generic ordinary metaclass method can retain its precise type[T]
+    # receiver while requiring that the class object belongs to its metaclass.
+    # This travels with the parameter through Callable/ParamSpec and caches.
+    metaclass_constraint: Type | None
+
     def __init__(
         self,
         item: Bogus[Instance | AnyType | TypeVarType | TupleType | NoneType | CallableType],
@@ -3722,16 +3727,14 @@ class TypeType(ProperType):
         )
 
     def serialize(self) -> JsonDict:
-        return {
+        result = {
             ".class": "TypeType",
             "item": self.item.serialize(),
             "is_type_form": self.is_type_form,
-            "metaclass_constraint": (
-                self.metaclass_constraint.serialize()
-                if self.metaclass_constraint is not None
-                else None
-            ),
         }
+        if self.metaclass_constraint is not None:
+            result["metaclass_constraint"] = self.metaclass_constraint.serialize()
+        return result
 
     @classmethod
     def deserialize(cls, data: JsonDict) -> Type:

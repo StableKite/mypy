@@ -1086,7 +1086,11 @@ class SemanticAnalyzer(
                     and result.arg_kinds[0] == ARG_POS
                 ):
                     receiver = get_proper_type(result.arg_types[0])
-                    if isinstance(receiver, TypeType) and isinstance(receiver.item, TypeVarType):
+                    if (
+                        isinstance(receiver, TypeType)
+                        and not receiver.is_type_form
+                        and isinstance(receiver.item, TypeVarType)
+                    ):
                         # The represented instance type and the metaclass of
                         # the class object are independent receiver constraints.
                         bound = get_proper_type(receiver.item.upper_bound)

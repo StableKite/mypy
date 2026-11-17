@@ -74,10 +74,13 @@ class TypesSuite(Suite):
 
     def test_metaclass_receiver_json_roundtrip(self) -> None:
         receiver = TypeType.make_normalized(self.fx.a, metaclass_constraint=self.fx.type_type)
-        roundtrip = TypeType.deserialize(receiver.serialize())
+        data = receiver.serialize()
+        assert isinstance(data, dict)
+        roundtrip = get_proper_type(TypeType.deserialize(data))
         assert isinstance(roundtrip, TypeType)
-        assert isinstance(roundtrip.metaclass_constraint, Instance)
-        self.assertEqual(roundtrip.metaclass_constraint.type_ref, "builtins.type")
+        constraint = get_proper_type(roundtrip.metaclass_constraint)
+        assert isinstance(constraint, Instance)
+        self.assertEqual(constraint.type_ref, "builtins.type")
 
     def test_metaclass_receiver_binary_roundtrip(self) -> None:
         receiver = TypeType.make_normalized(self.fx.a, metaclass_constraint=self.fx.type_type)
@@ -85,10 +88,11 @@ class TypesSuite(Suite):
         receiver.write(data)
         buffer = ReadBuffer(data.getvalue())
         assert read_tag(buffer) == TYPE_TYPE
-        roundtrip = TypeType.read(buffer)
+        roundtrip = get_proper_type(TypeType.read(buffer))
         assert isinstance(roundtrip, TypeType)
-        assert isinstance(roundtrip.metaclass_constraint, Instance)
-        self.assertEqual(roundtrip.metaclass_constraint.type_ref, "builtins.type")
+        constraint = get_proper_type(roundtrip.metaclass_constraint)
+        assert isinstance(constraint, Instance)
+        self.assertEqual(constraint.type_ref, "builtins.type")
 
     def test_metaclass_receiver_distinct_from_unconstrained_type(self) -> None:
         receiver = TypeType.make_normalized(self.fx.a, metaclass_constraint=self.fx.type_type)
