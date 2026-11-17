@@ -5866,6 +5866,7 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
                 and not method.is_static
                 and method.name != "__new__"
                 and bool(method.arguments)
+                and method.arguments[0].kind == ARG_POS
                 and is_self_type_like(instance_type, is_classmethod=True)
                 and (member := method.info.names.get(method.name)) is not None
                 and (

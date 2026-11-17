@@ -9902,3 +9902,17 @@ class Good(metaclass=M):
 
 reveal_type(Good.tag())  # N: Revealed type is "builtins.str"
 [builtins fixtures/type.pyi]
+
+[case testMetaclassGenericSuperRequiresPositionalReceiver]
+# flags: --strict
+from typing import Type, TypeVar
+T = TypeVar('T')
+
+class TagMeta(type):
+    def tag(cls) -> str:
+        return cls.__name__
+
+class M(TagMeta):
+    def keyword_only(*, cls: Type[T]) -> str:
+        return super().tag()  # E: Returning Any from function declared to return "str"                                  # E: Argument 2 for "super" not an instance of argument 1
+[builtins fixtures/type.pyi]
