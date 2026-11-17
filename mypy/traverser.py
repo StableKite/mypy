@@ -1104,3 +1104,69 @@ class YieldFromCollector(FuncCollectorBase):
 
     def visit_yield_from_expr(self, expr: YieldFromExpr) -> None:
         self.yield_from_expressions.append((expr, self.in_assignment))
+
+
+class _VarWriteSeeker(TraverserVisitor):
+    def __init__(self, var: Var) -> None:
+        self.var = var
+        self.found = False
+
+    def check_target(self, target: Expression | None) -> None:
+        if isinstance(target, NameExpr):
+            if target.node is self.var:
+                self.found = True
+        elif isinstance(target, (TupleExpr, ListExpr)):
+            for item in target.items:
+                self.check_target(item)
+        elif isinstance(target, StarExpr):
+            self.check_target(target.expr)
+
+    def visit_assignment_stmt(self, node: AssignmentStmt) -> None:
+        for target in node.lvalues:
+            self.check_target(target)
+        super().visit_assignment_stmt(node)
+
+    def visit_operator_assignment_stmt(self, node: OperatorAssignmentStmt) -> None:
+        self.check_target(node.lvalue)
+        super().visit_operator_assignment_stmt(node)
+
+    def visit_assignment_expr(self, node: AssignmentExpr) -> None:
+        self.check_target(node.target)
+        super().visit_assignment_expr(node)
+
+    def visit_for_stmt(self, node: ForStmt) -> None:
+        self.check_target(node.index)
+        super().visit_for_stmt(node)
+
+    def visit_with_stmt(self, node: WithStmt) -> None:
+        for target in node.target:
+            self.check_target(target)
+        super().visit_with_stmt(node)
+
+    def visit_try_stmt(self, node: TryStmt) -> None:
+        for target in node.vars:
+            self.check_target(target)
+        super().visit_try_stmt(node)
+
+    def visit_del_stmt(self, node: DelStmt) -> None:
+        self.check_target(node.expr)
+        super().visit_del_stmt(node)
+
+    def visit_as_pattern(self, node: AsPattern) -> None:
+        self.check_target(node.name)
+        super().visit_as_pattern(node)
+
+    def visit_starred_pattern(self, node: StarredPattern) -> None:
+        self.check_target(node.capture)
+        super().visit_starred_pattern(node)
+
+    def visit_mapping_pattern(self, node: MappingPattern) -> None:
+        self.check_target(node.rest)
+        super().visit_mapping_pattern(node)
+
+
+def is_variable_written(node: Node, var: Var) -> bool:
+    """Whether any binding or deletion in a subtree can replace a variable's value."""
+    visitor = _VarWriteSeeker(var)
+    node.accept(visitor)
+    return visitor.found

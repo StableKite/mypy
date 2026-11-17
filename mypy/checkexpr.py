@@ -134,6 +134,7 @@ from mypy.traverser import (
     all_name_and_member_expressions,
     has_await_expression,
     has_str_expression,
+    is_variable_written,
 )
 from mypy.tvar_scope import TypeVarLikeScope
 from mypy.typeanal import (
@@ -5858,13 +5859,31 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
             # to the current class MRO instead. This works only from inside a method.
             metaclass_self = (
                 method is not None
-                and method.info.is_metaclass()
+                and e.info is not None
+                and method.info is e.info
+                and e.info.is_metaclass()
                 and not method.is_class
                 and not method.is_static
                 and method.name != "__new__"
                 and bool(method.arguments)
-                and method.arguments[0].variable.type is not None
-                and is_same_type(instance_type, method.arguments[0].variable.type)
+                and is_self_type_like(instance_type, is_classmethod=True)
+                and (member := method.info.names.get(method.name)) is not None
+                and (
+                    member.node is method
+                    or isinstance(member.node, Decorator)
+                    and member.node.func is method
+                )
+                and (
+                    not e.call.args
+                    or (
+                        len(e.call.args) == 2
+                        and isinstance(e.call.args[0], RefExpr)
+                        and e.call.args[0].node is type_info
+                        and isinstance(e.call.args[1], NameExpr)
+                        and e.call.args[1].node is method.arguments[0].variable
+                    )
+                )
+                and not is_variable_written(method.body, method.arguments[0].variable)
             )
             if method is not None and is_self_type_like(
                 instance_type, is_classmethod=method.is_class or metaclass_self

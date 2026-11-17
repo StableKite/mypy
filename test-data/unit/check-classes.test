@@ -9846,3 +9846,59 @@ class Plain:
 
 result: str = M.unrelated(Good, Plain)
 [builtins fixtures/type.pyi]
+
+[case testMetaclassGenericSuperRequiresActualReceiver]
+# flags: --strict
+from typing import Type, TypeVar
+T = TypeVar('T')
+
+class TagMeta(type):
+    def tag(cls) -> str:
+        return cls.__name__
+
+class M(TagMeta):
+    def same_type(cls: Type[T], other: Type[T]) -> str:
+        return super(M, other).tag()  # E: Returning Any from function declared to return "str"                                      # E: Argument 2 for "super" not an instance of argument 1
+    def alias(cls: Type[T], other: Type[T]) -> str:
+        alias = other
+        return super(M, alias).tag()  # E: Returning Any from function declared to return "str"                                      # E: Argument 2 for "super" not an instance of argument 1
+    def nested(cls: Type[T], other: Type[T]) -> str:
+        def inner(value: Type[T]) -> str:
+            return super(M, value).tag()  # E: Returning Any from function declared to return "str"                                          # E: Argument 2 for "super" not an instance of argument 1
+        return inner(other)
+    def rebound(cls: Type[T], other: Type[T]) -> str:
+        cls = other
+        return super().tag()  # E: Returning Any from function declared to return "str"                                  # E: Argument 2 for "super" not an instance of argument 1
+    def unpacked(cls: Type[T], other: Type[T]) -> str:
+        cls, other = other, cls
+        return super().tag()  # E: Returning Any from function declared to return "str"                                  # E: Argument 2 for "super" not an instance of argument 1
+    def walrus(cls: Type[T], other: Type[T]) -> str:
+        (cls := other)
+        return super().tag()  # E: Returning Any from function declared to return "str"                                  # E: Argument 2 for "super" not an instance of argument 1
+
+class Good(metaclass=M):
+    pass
+class Plain:
+    pass
+
+result: str = M.same_type(Good, Plain)
+[builtins fixtures/type.pyi]
+
+[case testMetaclassOrdinaryGenericInstanceSelfSuperUnchanged]
+# flags: --strict
+from typing import TypeVar
+T = TypeVar('T')
+
+class TagMeta(type):
+    def tag(cls) -> str:
+        return cls.__name__
+
+class M(TagMeta):
+    def tag(cls: T) -> str:
+        return super().tag()
+
+class Good(metaclass=M):
+    pass
+
+reveal_type(Good.tag())  # N: Revealed type is "builtins.str"
+[builtins fixtures/type.pyi]
