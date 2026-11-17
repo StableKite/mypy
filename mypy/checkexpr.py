@@ -5856,18 +5856,23 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
             # checking super() we will still get an error. So to be consistent, we also
             # allow such imprecise annotations for use with super(), where we fall back
             # to the current class MRO instead. This works only from inside a method.
+            metaclass_self = (
+                method is not None
+                and method.info.is_metaclass()
+                and not method.is_class
+                and not method.is_static
+                and method.name != "__new__"
+                and bool(method.arguments)
+                and method.arguments[0].variable.type is not None
+                and is_same_type(instance_type, method.arguments[0].variable.type)
+            )
             if method is not None and is_self_type_like(
-                instance_type, is_classmethod=method.is_class or method.info.is_metaclass()
+                instance_type, is_classmethod=method.is_class or metaclass_self
             ):
                 if e.info and type_info in e.info.mro:
                     mro = e.info.mro
                     index = mro.index(type_info)
-                    if (
-                        e.info.is_metaclass()
-                        and not method.is_class
-                        and not method.is_static
-                        and method.name != "__new__"
-                    ):
+                    if metaclass_self:
                         # A generic class-object self still binds an instance
                         # method of the metaclass. Use that MRO for lookup,
                         # retaining type[T] as the receiver for generic binding.
