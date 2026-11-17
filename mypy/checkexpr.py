@@ -5831,6 +5831,7 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
             return AnyType(TypeOfAny.from_error)
 
         mro = instance_info.mro
+        member_type = instance_type
         if (
             type_info not in mro
             and type_info.is_metaclass()
@@ -5856,11 +5857,21 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
             # allow such imprecise annotations for use with super(), where we fall back
             # to the current class MRO instead. This works only from inside a method.
             if method is not None and is_self_type_like(
-                instance_type, is_classmethod=method.is_class
+                instance_type, is_classmethod=method.is_class or method.info.is_metaclass()
             ):
                 if e.info and type_info in e.info.mro:
                     mro = e.info.mro
                     index = mro.index(type_info)
+                    if (
+                        e.info.is_metaclass()
+                        and not method.is_class
+                        and not method.is_static
+                        and method.name != "__new__"
+                    ):
+                        # A generic class-object self still binds an instance
+                        # method of the metaclass. Use that MRO for lookup,
+                        # retaining type[T] as the receiver for generic binding.
+                        member_type = fill_typevars(e.info)
         if index is None:
             if (
                 instance_info.is_protocol
@@ -5888,7 +5899,7 @@ class ExpressionChecker(ExpressionVisitor[Type], ExpressionCheckerSharedApi):
 
                 return analyze_member_access(
                     name=e.name,
-                    typ=instance_type,
+                    typ=member_type,
                     is_lvalue=False,
                     is_super=True,
                     is_operator=False,

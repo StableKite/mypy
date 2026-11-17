@@ -1,5 +1,46 @@
 -- This test file checks Enum
 
+[case testEnumMetaUnboundedGenericSelfSuper]
+# flags: --strict
+from enum import Enum, EnumMeta
+from typing import Type, TypeVar
+T = TypeVar('T')
+
+class FoldMeta(EnumMeta):
+    def __getitem__(cls: Type[T], name: str) -> T:
+        return super().__getitem__(name)
+    def explicit(cls: Type[T], name: str) -> T:
+        return super(FoldMeta, cls).__getitem__(name)
+
+class Direct(Enum, metaclass=FoldMeta):
+    RED = 1
+class FoldEnum(Enum, metaclass=FoldMeta):
+    pass
+class Indirect(FoldEnum):
+    RED = 1
+
+reveal_type(Direct['RED'])  # N: Revealed type is "__main__.Direct"
+reveal_type(Indirect['RED'])  # N: Revealed type is "__main__.Indirect"
+reveal_type(Direct.explicit('RED'))  # N: Revealed type is "__main__.Direct"
+reveal_type(FoldMeta.explicit(Indirect, 'RED'))  # N: Revealed type is "__main__.Indirect"
+wrong: int = Direct['RED']  # E: Incompatible types in assignment (expression has type "Direct", variable has type "int")
+wrong_key = Direct[1]  # E: Invalid index type "int" for "type[Direct]"; expected type "str"
+super(FoldMeta, int).__getitem__('RED')  # E: Argument 2 for "super" not an instance of argument 1
+[builtins fixtures/type.pyi]
+
+[case testEnumMetaGenericSelfSuperRejectsWrongBody]
+# flags: --strict
+from enum import EnumMeta
+from typing import Type, TypeVar
+T = TypeVar('T')
+
+class WrongMeta(EnumMeta):
+    def __getitem__(cls: Type[T], name: str) -> T:
+        return 1  # E: Incompatible return value type (got "int", expected "T")
+    def wrong_argument(cls: Type[T]) -> T:
+        return super().__getitem__(1)  # E: Invalid index type "int" for "EnumMeta"; expected type "str"
+[builtins fixtures/type.pyi]
+
 [case testEnumBasics]
 from enum import Enum
 class Medal(Enum):
