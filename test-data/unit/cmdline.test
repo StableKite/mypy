@@ -12,6 +12,146 @@
 -- is "nonobvious" -- that is, when it is something other than 0 if there are no
 -- messages and 1 if there are.
 
+[case testCmdlineOverloadedNamedTupleSpecializedAddition]
+# cmd: mypy --strict --python-version 3.15 --no-incremental _program.py
+from __future__ import annotations
+
+from typing import NamedTuple, assert_type, overload
+
+class Angle(NamedTuple):
+    x: float
+    y: float
+
+    @overload
+    def __add__(self, value: Angle, /) -> Angle: ...
+    @overload
+    def __add__(self, value: tuple[float, ...], /) -> tuple[float, ...]: ...
+    @overload
+    def __add__[T](self, value: tuple[T, ...], /) -> tuple[float | T, ...]: ...
+    def __add__[T](self, value: tuple[T, ...], /) -> tuple[float | T, ...]:
+        return value if isinstance(value, Angle) else tuple(self) + value
+
+angle = Angle(1, 2)
+assert_type(angle + angle, Angle)
+assert_type(angle + ("text",), tuple[float | str, ...])
+[out]
+
+[case testCmdlineOverloadedOverrideRejectsInvalidSpecializations]
+# cmd: mypy --strict --python-version 3.15 --no-incremental --show-error-codes _program.py
+from typing import Literal, overload
+
+class Base:
+    @overload
+    def pick(self, value: int, *, label: str) -> int: ...
+    @overload
+    def pick(self, value: str, *, label: str) -> str: ...
+    def pick(self, value: int | str, *, label: str) -> int | str:
+        return value
+
+class MissingFirst(Base):
+    @overload
+    def pick(self, value: str, *, label: str) -> str: ...
+    @overload
+    def pick(self, value: bytes, *, label: str) -> bytes: ...
+    def pick(self, value: str | bytes, *, label: str) -> str | bytes:
+        return value
+
+class ReversedOrder(Base):
+    @overload
+    def pick(self, value: str, *, label: str) -> str: ...
+    @overload
+    def pick(self, value: int, *, label: str) -> int: ...
+    def pick(self, value: int | str, *, label: str) -> int | str:
+        return value
+
+class IncompatibleReturn(Base):
+    @overload
+    def pick(self, value: Literal[1], *, label: str) -> str: ...
+    @overload
+    def pick(self, value: int, *, label: str) -> int: ...
+    @overload
+    def pick(self, value: str, *, label: str) -> str: ...
+    def pick(self, value: int | str, *, label: str) -> int | str:
+        return label if value == 1 else value
+
+class WrongKeyword(Base):
+    @overload
+    def pick(self, value: int, *, renamed: str) -> int: ...
+    @overload
+    def pick(self, value: str, *, renamed: str) -> str: ...
+    def pick(self, value: int | str, *, renamed: str) -> int | str:
+        return value
+
+class Generic:
+    @overload
+    def lookup(self, *, mode: Literal["text"], value: int) -> str: ...
+    @overload
+    def lookup[T](self, *, mode: Literal["value"], value: T) -> T: ...
+    def lookup[T](self, *, mode: str, value: T) -> T | str:
+        return str(value) if mode == "text" else value
+
+class IncompatibleGenericReturn(Generic):
+    @overload
+    def lookup(self, *, mode: Literal["value"], value: Literal[1]) -> str: ...
+    @overload
+    def lookup(self, *, mode: Literal["text"], value: int) -> str: ...
+    @overload
+    def lookup[T](self, *, mode: Literal["value"], value: T) -> T: ...
+    def lookup[T](self, *, mode: str, value: T) -> T | str:
+        return str(value) if mode == "text" or value == 1 else value
+[out]
+_program.py:13: error: Signature of "pick" incompatible with supertype "Base"  [override]
+_program.py:13: note:      Superclass:
+_program.py:13: note:          @overload
+_program.py:13: note:          def pick(self, value: int, *, label: str) -> int
+_program.py:13: note:          @overload
+_program.py:13: note:          def pick(self, value: str, *, label: str) -> str
+_program.py:13: note:      Subclass:
+_program.py:13: note:          @overload
+_program.py:13: note:          def pick(self, value: str, *, label: str) -> str
+_program.py:13: note:          @overload
+_program.py:13: note:          def pick(self, value: bytes, *, label: str) -> bytes
+_program.py:21: error: Signature of "pick" incompatible with supertype "Base"  [override]
+_program.py:21: note: Overload variants must be defined in the same order as they are in "Base"
+_program.py:29: error: Signature of "pick" incompatible with supertype "Base"  [override]
+_program.py:29: note:      Superclass:
+_program.py:29: note:          @overload
+_program.py:29: note:          def pick(self, value: int, *, label: str) -> int
+_program.py:29: note:          @overload
+_program.py:29: note:          def pick(self, value: str, *, label: str) -> str
+_program.py:29: note:      Subclass:
+_program.py:29: note:          @overload
+_program.py:29: note:          def pick(self, value: Literal[1], *, label: str) -> str
+_program.py:29: note:          @overload
+_program.py:29: note:          def pick(self, value: int, *, label: str) -> int
+_program.py:29: note:          @overload
+_program.py:29: note:          def pick(self, value: str, *, label: str) -> str
+_program.py:30: error: Overloaded function signatures 1 and 2 overlap with incompatible return types  [overload-overlap]
+_program.py:39: error: Signature of "pick" incompatible with supertype "Base"  [override]
+_program.py:39: note:      Superclass:
+_program.py:39: note:          @overload
+_program.py:39: note:          def pick(self, value: int, *, label: str) -> int
+_program.py:39: note:          @overload
+_program.py:39: note:          def pick(self, value: str, *, label: str) -> str
+_program.py:39: note:      Subclass:
+_program.py:39: note:          @overload
+_program.py:39: note:          def pick(self, value: int, *, renamed: str) -> int
+_program.py:39: note:          @overload
+_program.py:39: note:          def pick(self, value: str, *, renamed: str) -> str
+_program.py:55: error: Signature of "lookup" incompatible with supertype "Generic"  [override]
+_program.py:55: note:      Superclass:
+_program.py:55: note:          @overload
+_program.py:55: note:          def lookup(self, *, mode: Literal['text'], value: int) -> str
+_program.py:55: note:          @overload
+_program.py:55: note:          def [T] lookup(self, *, mode: Literal['value'], value: T) -> T
+_program.py:55: note:      Subclass:
+_program.py:55: note:          @overload
+_program.py:55: note:          def lookup(self, *, mode: Literal['value'], value: Literal[1]) -> str
+_program.py:55: note:          @overload
+_program.py:55: note:          def lookup(self, *, mode: Literal['text'], value: int) -> str
+_program.py:55: note:          @overload
+_program.py:55: note:          def [T] lookup(self, *, mode: Literal['value'], value: T) -> T
+
 -- Directories/packages on the command line
 -- ----------------------------------------
 

@@ -1095,33 +1095,35 @@ class SubtypeVisitor(TypeVisitor[bool]):
                         found_match = True
                         matched_overloads.add(left_index)
                         break
-                    else:
-                        # If this one overlaps with the supertype in any way, but it wasn't
-                        # an exact match, then it's a potential error.
+                    elif left_index not in matched_overloads:
+                        # An earlier overload can intercept calls meant for this
+                        # supertype variant. If it accepts all of those calls, it
+                        # must be a valid match in the required order.
                         strict_concat = (
                             (self.options.extra_checks or self.options.strict_concatenate)
                             if self.options
                             else False
                         )
-                        if left_index not in matched_overloads and (
-                            is_callable_compatible(
-                                left_item,
-                                right_item,
-                                is_compat=self._is_subtype,
-                                is_proper_subtype=self.proper_subtype,
-                                ignore_return=True,
-                                ignore_pos_arg_names=self.subtype_context.ignore_pos_arg_names,
-                                strict_concatenate=strict_concat,
-                            )
-                            or is_callable_compatible(
-                                right_item,
-                                left_item,
-                                is_compat=self._is_subtype,
-                                is_proper_subtype=self.proper_subtype,
-                                ignore_return=True,
-                                ignore_pos_arg_names=self.subtype_context.ignore_pos_arg_names,
-                                strict_concatenate=strict_concat,
-                            )
+                        if is_callable_compatible(
+                            left_item,
+                            right_item,
+                            is_compat=self._is_subtype,
+                            is_proper_subtype=self.proper_subtype,
+                            ignore_return=True,
+                            ignore_pos_arg_names=self.subtype_context.ignore_pos_arg_names,
+                            strict_concatenate=strict_concat,
+                        ):
+                            return False
+                        if is_callable_compatible(
+                            right_item,
+                            left_item,
+                            is_compat=self._is_subtype,
+                            is_proper_subtype=self.proper_subtype,
+                            ignore_return=True,
+                            ignore_pos_arg_names=self.subtype_context.ignore_pos_arg_names,
+                            strict_concatenate=strict_concat,
+                        ) and not self._overload_specialization_returns_compatible(
+                            left_item, right_item
                         ):
                             return False
 
@@ -1137,6 +1139,26 @@ class SubtypeVisitor(TypeVisitor[bool]):
             return left.is_type_obj() and self._is_subtype(left.items[0], right)
         else:
             return False
+
+    def _overload_specialization_returns_compatible(
+        self, left: CallableType, right: CallableType
+    ) -> bool:
+        # The supertype accepts all calls to this narrower signature. Use those
+        # inputs to specialize its result before checking covariance.
+        if right.variables:
+            specialized = unify_generic_callable(
+                right.with_unpacked_kwargs().with_normalized_var_args(),
+                left.with_unpacked_kwargs().with_normalized_var_args(),
+                ignore_return=True,
+            )
+            if specialized is None:
+                return False
+            right = specialized
+        # Keep the same inputs to reuse the callable checks for TypeGuard and TypeIs.
+        expected = left.copy_modified(
+            ret_type=right.ret_type, type_guard=right.type_guard, type_is=right.type_is
+        )
+        return self._is_subtype(left, expected)
 
     def visit_union_type(self, left: UnionType) -> bool:
         if isinstance(self.right, Instance):
